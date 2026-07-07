@@ -17,7 +17,7 @@ const TABS = [
   { to: '/budget/transfers', label: 'Transfers' },
   { to: '/budget/income', label: 'Income' },
   { to: '/budget/trends', label: 'Trends' },
-  { to: '/budget/import', label: 'Import' },
+  { to: '/budget/import', label: 'Import', desktopOnly: true },
   { to: '/budget/lookup', label: 'Lookup' },
 ]
 
@@ -25,7 +25,7 @@ export default function BudgetModule() {
   return (
     <div className="text-left">
       <nav className="flex gap-1 mb-6 border-b border-gray-800 pb-2 -mx-4 px-4 overflow-x-auto">
-        {TABS.map(({ to, label }) => (
+        {TABS.map(({ to, label, desktopOnly }) => (
           <NavLink
             key={to}
             to={to}
@@ -34,7 +34,7 @@ export default function BudgetModule() {
                 isActive
                   ? 'bg-indigo-600 text-white'
                   : 'text-gray-400 hover:text-white'
-              }`
+              } ${desktopOnly ? 'hidden sm:inline-flex' : ''}`
             }
           >
             {label}
