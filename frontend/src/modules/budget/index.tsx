@@ -18,7 +18,7 @@ const TABS = [
   { to: '/budget/income', label: 'Income' },
   { to: '/budget/trends', label: 'Trends' },
   { to: '/budget/import', label: 'Import', desktopOnly: true },
-  { to: '/budget/lookup', label: 'Lookup' },
+  { to: '/budget/lookup', label: 'Lookup', desktopOnly: true },
 ]
 
 export default function BudgetModule() {
