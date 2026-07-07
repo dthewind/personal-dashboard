@@ -60,7 +60,7 @@ function parseCsv(text: string, accounts: Account[]): { rows: CsvRow[]; error?: 
 
   const acctMap = new Map(accounts.map(a => [a.name.toLowerCase(), a.id]))
 
-  const rows = all.slice(1).flatMap((r, i): CsvRow[] => {
+  const rows = all.slice(1).flatMap((r): CsvRow[] => {
     if (r.every(cell => !cell)) return []  // skip blank lines
     const accountRaw = r[iAccount]?.trim() ?? ''
     const accountId = acctMap.get(accountRaw.toLowerCase()) ?? null

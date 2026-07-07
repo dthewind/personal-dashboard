@@ -5,7 +5,7 @@ import { fmt } from '../utils'
 import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
 import Typeahead from '../components/Typeahead'
-import type { Transaction, Transfer, AccountCredit, AccountCreditCreate, FixedBillPayment, TransactionTag } from '../types'
+import type { Transaction, TransactionCreate, Transfer, AccountCredit, AccountCreditCreate, FixedBillPayment, TransactionTag } from '../types'
 
 const TAGS: TransactionTag[] = ['variable', 'fixed', 'one_off']
 const TAG_LABELS: Record<TransactionTag, string> = { variable: 'Variable', fixed: 'Fixed', one_off: 'One-off' }
@@ -25,7 +25,7 @@ function EditRow({
   txn: Transaction
   accounts: { id: string; name: string }[]
   categories: string[]
-  onSave: (data: Partial<Transaction>) => void
+  onSave: (data: Partial<TransactionCreate>) => void
   onCancel: () => void
   saving: boolean
 }) {

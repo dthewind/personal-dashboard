@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel, todayStr } from '../utils'
+import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
 import type { Account, FixedBill, FixedBillCreate, FixedBillPayment, FixedBillUpdate } from '../types'
 
 function MonthNav({ month, onChange }: { month: string; onChange: (m: string) => void }) {
@@ -420,8 +420,6 @@ export default function Bills() {
   const [payingBill, setPayingBill] = useState<FixedBill | null>(null)
   const [addError, setAddError] = useState<string | undefined>()
   const [undoingPaymentId, setUndoingPaymentId] = useState<string | null>(null)
-
-  const isCurrentMonth = month === currentMonthStr()
 
   const { data: bills, isLoading } = useQuery({
     queryKey: ['bills'],

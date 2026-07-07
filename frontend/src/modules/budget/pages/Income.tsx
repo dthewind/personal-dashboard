@@ -4,7 +4,7 @@ import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
 import type {
   Account,
-  Allocation, AllocationCreate,
+  AllocationCreate,
   IncomePeriod, IncomePeriodCreate,
   IncomeEntry, IncomeEntryCreate,
   IncomeType,
