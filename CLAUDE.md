@@ -17,7 +17,7 @@ npm run lint     # lint
 
 **Backend** (from `backend/`):
 ```
-.venv/Scripts/uvicorn main:app --reload   # Windows dev server at localhost:8000
+.venv/Scripts/uvicorn main:app --reload --port 8001   # Windows dev server at localhost:8001 (8000 blocked by OS)
 .venv/Scripts/alembic upgrade head        # run migrations
 .venv/Scripts/alembic revision --autogenerate -m "description"  # new migration
 ```
@@ -42,7 +42,7 @@ backend/app/
   main.py         ← FastAPI app entry point
 ```
 
-Vite proxies `/api/*` → `localhost:8000` in dev.
+Vite proxies `/api/*` → `localhost:8001` in dev.
 
 ## Auth
 

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.auth import tailscale_auth_middleware
+from app.modules.budget.router import router as budget_router
 
 app = FastAPI(title="Personal Dashboard API")
 
@@ -15,6 +16,8 @@ app.add_middleware(
 )
 
 app.middleware("http")(tailscale_auth_middleware)
+
+app.include_router(budget_router)
 
 
 @app.get("/health")
