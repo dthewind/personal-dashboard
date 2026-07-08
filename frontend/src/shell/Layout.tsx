@@ -5,7 +5,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <Nav />
-      <main className="p-4">
+      <main className="px-4 pt-0 pb-4">
         <Outlet />
       </main>
     </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, todayStr } from '../utils'
@@ -179,9 +180,8 @@ export default function TransfersPage() {
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a]))
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-white">Transfers</h1>
+    <PageShell>
+      <div className="flex justify-end">
         {!showAdd && !editingId && (
           <button
             onClick={() => setShowAdd(true)}
@@ -329,6 +329,6 @@ export default function TransfersPage() {
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

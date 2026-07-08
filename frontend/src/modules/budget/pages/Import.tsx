@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { Account, TransactionCreate, TransactionTag } from '../types'
@@ -521,19 +522,16 @@ export default function ImportPage() {
     }`
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-white">Import Transactions</h1>
-        <div className="flex gap-2">
-          <button className={tabCls(tab === 'manual')} onClick={() => setTab('manual')}>Manual Entry</button>
-          <button className={tabCls(tab === 'csv')} onClick={() => setTab('csv')}>CSV Import</button>
-        </div>
+    <PageShell>
+      <div className="flex justify-end gap-2">
+        <button className={tabCls(tab === 'manual')} onClick={() => setTab('manual')}>Manual Entry</button>
+        <button className={tabCls(tab === 'csv')} onClick={() => setTab('csv')}>CSV Import</button>
       </div>
 
       {tab === 'manual'
         ? <ManualBatchEntry accounts={accounts} categories={categories} />
         : <CsvImport accounts={accounts} categories={categories} />
       }
-    </div>
+    </PageShell>
   )
 }

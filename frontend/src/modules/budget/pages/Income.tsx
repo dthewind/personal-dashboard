@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
@@ -798,9 +799,8 @@ export default function IncomePage() {
   })
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-white">Income</h1>
+    <PageShell>
+      <div className="flex justify-end">
         <MonthNav month={month} onChange={setMonth} />
       </div>
 
@@ -808,6 +808,6 @@ export default function IncomePage() {
       <IncomeEntriesSection month={month} accounts={accounts} />
       <DeductionsSection month={month} />
       <SummarySection month={month} />
-    </div>
+    </PageShell>
   )
 }

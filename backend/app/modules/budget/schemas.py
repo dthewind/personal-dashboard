@@ -22,6 +22,10 @@ class AccountCreate(BaseModel):
     apr: Decimal | None = None
     statement_close_day: int | None = None
     due_day: int | None = None
+    autopay: str | None = None
+    annual_fee: Decimal | None = None
+    annual_fee_month: int | None = None
+    last_4: str | None = None
     is_active: bool = True
 
 
@@ -34,6 +38,10 @@ class AccountUpdate(BaseModel):
     credit_limit: Decimal | None = None
     statement_close_day: int | None = None
     due_day: int | None = None
+    autopay: str | None = None
+    annual_fee: Decimal | None = None
+    annual_fee_month: int | None = None
+    last_4: str | None = None
     is_active: bool | None = None
 
 
@@ -49,6 +57,10 @@ class AccountOut(BaseModel):
     apr: DecimalJSON | None
     statement_close_day: int | None
     due_day: int | None
+    autopay: str | None
+    annual_fee: DecimalJSON | None
+    annual_fee_month: int | None
+    last_4: str | None
     is_active: bool
 
 
@@ -91,6 +103,7 @@ class TransactionOut(BaseModel):
     tag: TransactionTag
     notes: str | None
     reward_rule_id: str | None
+    bill_id: str | None
 
 
 # ── Merchants ──────────────────────────────────────────────────────────────────
@@ -134,6 +147,8 @@ class FixedBillCreate(BaseModel):
     expected_amount: Decimal
     is_estimated: bool = False
     is_active: bool = True
+    category: str | None = None
+    merchant: str | None = None
 
 
 class FixedBillUpdate(BaseModel):
@@ -143,6 +158,8 @@ class FixedBillUpdate(BaseModel):
     expected_amount: Decimal | None = None
     is_estimated: bool | None = None
     is_active: bool | None = None
+    category: str | None = None
+    merchant: str | None = None
 
 
 class FixedBillOut(BaseModel):
@@ -155,6 +172,8 @@ class FixedBillOut(BaseModel):
     expected_amount: DecimalJSON
     is_estimated: bool
     is_active: bool
+    category: str | None
+    merchant: str | None
 
 
 class FixedBillPaymentCreate(BaseModel):
@@ -164,8 +183,6 @@ class FixedBillPaymentCreate(BaseModel):
 
 
 class FixedBillPaymentOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: str
     bill_id: str
     paid_date: datetime.date
@@ -294,12 +311,22 @@ class TransactionBulkCreate(BaseModel):
 
 # ── Account Credits ─────────────────────────────────────────────────────────────
 
+class AccountCreditUpdate(BaseModel):
+    account_id: str | None = None
+    amount: Decimal | None = None
+    date: datetime.date | None = None
+    description: str | None = None
+    credit_type: str | None = None
+    category: str | None = None
+
+
 class AccountCreditCreate(BaseModel):
     account_id: str
     amount: Decimal
     date: datetime.date
     description: str
     credit_type: str = "cashback"
+    category: str | None = None
 
 
 class AccountCreditOut(BaseModel):
@@ -311,3 +338,38 @@ class AccountCreditOut(BaseModel):
     date: datetime.date
     description: str
     credit_type: str
+    category: str | None
+
+
+# ── Promo APR Windows ──────────────────────────────────────────────────────────
+
+class PromoAprWindowCreate(BaseModel):
+    account_id: str
+    description: str
+    promo_end_date: datetime.date
+    balance_amount: Decimal
+    purchase_date: datetime.date
+    original_amount: Decimal | None = None
+    required_monthly_payment: Decimal | None = None
+
+
+class PromoAprWindowUpdate(BaseModel):
+    description: str | None = None
+    promo_end_date: datetime.date | None = None
+    balance_amount: Decimal | None = None
+    purchase_date: datetime.date | None = None
+    original_amount: Decimal | None = None
+    required_monthly_payment: Decimal | None = None
+
+
+class PromoAprWindowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    account_id: str
+    description: str
+    promo_end_date: datetime.date
+    balance_amount: DecimalJSON
+    purchase_date: datetime.date
+    original_amount: DecimalJSON | None
+    required_monthly_payment: DecimalJSON | None

@@ -24,7 +24,7 @@ const TABS = [
 export default function BudgetModule() {
   return (
     <div className="text-left">
-      <nav className="flex gap-1 mb-6 border-b border-gray-800 pb-2 -mx-4 px-4 overflow-x-auto">
+      <nav className="flex gap-1 mb-1 border-b border-gray-800 pb-1 -mx-4 px-4 mt-1 overflow-x-auto">
         {TABS.map(({ to, label, desktopOnly }) => (
           <NavLink
             key={to}

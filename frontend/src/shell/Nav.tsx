@@ -9,7 +9,7 @@ const modules = [
 
 export default function Nav() {
   return (
-    <nav className="flex gap-1 border-b border-gray-800 px-4 py-2">
+    <nav className="flex gap-1 border-b border-gray-800 px-4 py-1">
       {modules.map(({ path, label }) => (
         <NavLink
           key={path}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 type SortDir = 'asc' | 'desc'
@@ -13,11 +14,61 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 
 interface CategoryStat { name: string; count: number; total: number }
 interface MerchantStat { id: string; name: string; default_category: string | null; count: number }
+interface Transaction {
+  id: string
+  date: string
+  amount: number
+  merchant: string | null
+  category: string | null
+  account_id: string
+}
+interface Account { id: string; name: string }
 
 type CatSortKey = 'name' | 'count' | 'total'
 type MerchSortKey = 'name' | 'count' | 'default_category'
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500'
+
+function DrilldownPanel({ filter, accounts }: { filter: { category?: string; merchant?: string }; accounts: Account[] }) {
+  const params = new URLSearchParams({ limit: '200' })
+  if (filter.category) params.set('category', filter.category)
+  if (filter.merchant) params.set('merchant', filter.merchant)
+
+  const { data: txns = [], isLoading } = useQuery<Transaction[]>({
+    queryKey: ['lookup-drilldown', filter],
+    queryFn: () => fetch(`/api/budget/transactions?${params}`).then(r => r.json()),
+  })
+
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+
+  if (isLoading) return (
+    <tr><td colSpan={4} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">Loading…</td></tr>
+  )
+  if (txns.length === 0) return (
+    <tr><td colSpan={4} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">No transactions found.</td></tr>
+  )
+
+  return (
+    <tr>
+      <td colSpan={4} className="p-0 bg-gray-950 border-b border-gray-800">
+        <div className="max-h-64 overflow-y-auto">
+          <table className="w-full">
+            <tbody>
+              {txns.map(t => (
+                <tr key={t.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                  <td className="pl-6 pr-2 py-1.5 text-xs text-gray-500 tabular-nums w-24">{t.date}</td>
+                  <td className="px-2 py-1.5 text-xs text-gray-300">{t.merchant ?? '—'}</td>
+                  <td className="px-2 py-1.5 text-xs text-gray-400">{accountMap[t.account_id] ?? '—'}</td>
+                  <td className="px-2 py-1.5 text-xs text-right tabular-nums text-gray-300 pr-4">${Number(t.amount).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>
+  )
+}
 
 export default function LookupPage() {
   const qc = useQueryClient()
@@ -32,12 +83,18 @@ export default function LookupPage() {
     queryFn: () => fetch('/api/budget/merchant-stats').then(r => r.json()),
   })
 
+  const { data: accounts = [] } = useQuery<Account[]>({
+    queryKey: ['accounts'],
+    queryFn: () => fetch('/api/budget/accounts').then(r => r.json()),
+  })
+
   // ── Category state ────────────────────────────────────────────────────────
   const [catFilter, setCatFilter] = useState('')
   const [catSort, setCatSort] = useState<CatSortKey>('name')
   const [catDir, setCatDir] = useState<SortDir>('asc')
   const [renamingCat, setRenamingCat] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [expandedCat, setExpandedCat] = useState<string | null>(null)
 
   const renameCategory = useMutation({
     mutationFn: ({ old_name, new_name }: { old_name: string; new_name: string }) =>
@@ -51,6 +108,7 @@ export default function LookupPage() {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['categories'] })
       setRenamingCat(null)
+      setExpandedCat(null)
     },
   })
 
@@ -62,6 +120,7 @@ export default function LookupPage() {
   const [editName, setEditName] = useState('')
   const [editCat, setEditCat] = useState('')
   const [deletingMerchant, setDeletingMerchant] = useState<MerchantStat | null>(null)
+  const [expandedMerch, setExpandedMerch] = useState<string | null>(null)
 
   const updateMerchant = useMutation({
     mutationFn: ({ id, name, default_category }: { id: string; name: string; default_category: string }) =>
@@ -123,7 +182,7 @@ export default function LookupPage() {
   const tdCls = 'px-3 py-2 text-sm text-gray-300'
 
   return (
-    <div className="space-y-8">
+    <PageShell gap="space-y-6">
 
       {/* ── Categories ─────────────────────────────────────────────────────── */}
       <div>
@@ -158,53 +217,67 @@ export default function LookupPage() {
                 <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-500 text-sm">No categories yet</td></tr>
               ) : filteredCats.map(c => (
                 renamingCat === c.name ? (
-                  <tr key={c.name} className="bg-gray-800/60">
-                    <td className={tdCls} colSpan={3}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400 text-xs">Rename "{c.name}" to:</span>
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={e => setRenameValue(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && renameValue.trim()) renameCategory.mutate({ old_name: c.name, new_name: renameValue.trim() })
-                            if (e.key === 'Escape') setRenamingCat(null)
-                          }}
-                          className={inputCls + ' w-48'}
-                        />
-                        <button
-                          onClick={() => renameValue.trim() && renameCategory.mutate({ old_name: c.name, new_name: renameValue.trim() })}
-                          disabled={!renameValue.trim() || renameCategory.isPending}
-                          className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded px-2 py-1"
-                        >
-                          {renameCategory.isPending ? '…' : 'Save'}
-                        </button>
-                        <button onClick={() => setRenamingCat(null)} className="text-xs text-gray-400 hover:text-white">Cancel</button>
-                      </div>
-                    </td>
-                    <td />
-                  </tr>
+                  <>
+                    <tr key={c.name} className="bg-gray-800/60">
+                      <td className={tdCls} colSpan={3}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400 text-xs">Rename "{c.name}" to:</span>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && renameValue.trim()) renameCategory.mutate({ old_name: c.name, new_name: renameValue.trim() })
+                              if (e.key === 'Escape') setRenamingCat(null)
+                            }}
+                            className={inputCls + ' w-48'}
+                          />
+                          <button
+                            onClick={() => renameValue.trim() && renameCategory.mutate({ old_name: c.name, new_name: renameValue.trim() })}
+                            disabled={!renameValue.trim() || renameCategory.isPending}
+                            className="text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded px-2 py-1"
+                          >
+                            {renameCategory.isPending ? '…' : 'Save'}
+                          </button>
+                          <button onClick={() => setRenamingCat(null)} className="text-xs text-gray-400 hover:text-white">Cancel</button>
+                        </div>
+                      </td>
+                      <td />
+                    </tr>
+                  </>
                 ) : (
-                  <tr key={c.name} className="hover:bg-gray-800/50 group">
-                    <td className={tdCls + ' font-medium text-white'}>{c.name}</td>
-                    <td className={tdCls + ' text-right tabular-nums'}>{c.count}</td>
-                    <td className={tdCls + ' text-right tabular-nums'}>${c.total.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        onClick={() => { setRenamingCat(c.name); setRenameValue(c.name) }}
-                        className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-indigo-400 transition-opacity"
-                        title="Rename"
-                      >
-                        Rename
-                      </button>
-                    </td>
-                  </tr>
+                  <>
+                    <tr
+                      key={c.name}
+                      className={`hover:bg-gray-800/50 group cursor-pointer ${expandedCat === c.name ? 'bg-gray-800/40' : ''}`}
+                      onClick={() => setExpandedCat(expandedCat === c.name ? null : c.name)}
+                    >
+                      <td className={tdCls + ' font-medium text-white'}>
+                        <span className="mr-1.5 text-gray-600 text-xs">{expandedCat === c.name ? '▼' : '▶'}</span>
+                        {c.name}
+                      </td>
+                      <td className={tdCls + ' text-right tabular-nums'}>{c.count}</td>
+                      <td className={tdCls + ' text-right tabular-nums'}>${c.total.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => { setRenamingCat(c.name); setRenameValue(c.name) }}
+                          className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-indigo-400 transition-opacity"
+                          title="Rename"
+                        >
+                          Rename
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedCat === c.name && (
+                      <DrilldownPanel filter={{ category: c.name }} accounts={accounts} />
+                    )}
+                  </>
                 )
               ))}
             </tbody>
           </table>
         </div>
-        <p className="mt-1.5 text-xs text-gray-600">Renaming updates all transactions with that category. Typing an existing category name merges them.</p>
+        <p className="mt-1.5 text-xs text-gray-600">Click a row to see its transactions. Renaming updates all transactions with that category. Typing an existing category name merges them.</p>
       </div>
 
       {/* ── Merchants ──────────────────────────────────────────────────────── */}
@@ -308,42 +381,54 @@ export default function LookupPage() {
                 }
 
                 return (
-                  <tr key={m.id} className="hover:bg-gray-800/50 group">
-                    <td className={tdCls + ' font-medium text-white'}>{m.name}</td>
-                    <td className={tdCls}>
-                      {m.default_category
-                        ? <span className="px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-gray-300">{m.default_category}</span>
-                        : <span className="text-gray-600">—</span>
-                      }
-                    </td>
-                    <td className={tdCls + ' text-right tabular-nums'}>{m.count}</td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => { setEditingMerchant(m); setEditName(m.name); setEditCat(m.default_category ?? '') }}
-                          className="text-xs text-gray-400 hover:text-indigo-400"
-                          title="Edit"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setDeletingMerchant(m)}
-                          className="text-xs text-gray-400 hover:text-red-400"
-                          title="Delete"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <>
+                    <tr
+                      key={m.id}
+                      className={`hover:bg-gray-800/50 group cursor-pointer ${expandedMerch === m.id ? 'bg-gray-800/40' : ''}`}
+                      onClick={() => setExpandedMerch(expandedMerch === m.id ? null : m.id)}
+                    >
+                      <td className={tdCls + ' font-medium text-white'}>
+                        <span className="mr-1.5 text-gray-600 text-xs">{expandedMerch === m.id ? '▼' : '▶'}</span>
+                        {m.name}
+                      </td>
+                      <td className={tdCls}>
+                        {m.default_category
+                          ? <span className="px-2 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs text-gray-300">{m.default_category}</span>
+                          : <span className="text-gray-600">—</span>
+                        }
+                      </td>
+                      <td className={tdCls + ' text-right tabular-nums'}>{m.count}</td>
+                      <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => { setEditingMerchant(m); setEditName(m.name); setEditCat(m.default_category ?? '') }}
+                            className="text-xs text-gray-400 hover:text-indigo-400"
+                            title="Edit"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setDeletingMerchant(m)}
+                            className="text-xs text-gray-400 hover:text-red-400"
+                            title="Delete"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedMerch === m.id && (
+                      <DrilldownPanel filter={{ merchant: m.name }} accounts={accounts} />
+                    )}
+                  </>
                 )
               })}
             </tbody>
           </table>
         </div>
-        <p className="mt-1.5 text-xs text-gray-600">Editing a merchant name also updates the name on all linked transactions. Deleting only removes the merchant record.</p>
+        <p className="mt-1.5 text-xs text-gray-600">Click a row to see its transactions. Editing a merchant name also updates the name on all linked transactions. Deleting only removes the merchant record.</p>
       </div>
 
-    </div>
+    </PageShell>
   )
 }

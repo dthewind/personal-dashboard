@@ -6,8 +6,8 @@ from sqlalchemy import extract, func, select, update
 from sqlalchemy.orm import Session
 
 from .models import (
-    Account, AccountCredit, Allocation, FixedBill, FixedBillPayment,
-    IncomeEntry, IncomePeriod, Merchant, Transaction, Transfer,
+    Account, AccountCredit, Allocation, FixedBill,
+    IncomeEntry, IncomePeriod, Merchant, PromoAprWindow, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
@@ -18,7 +18,8 @@ from .schemas import (
     IncomePeriodCreate, IncomePeriodUpdate,
     IncomeEntryCreate, IncomeEntryUpdate,
     AllocationCreate,
-    AccountCreditCreate,
+    AccountCreditCreate, AccountCreditUpdate,
+    PromoAprWindowCreate, PromoAprWindowUpdate,
     TransferCreate, TransferUpdate,
 )
 
@@ -33,17 +34,10 @@ def recompute_balance(db: Session, account_id: str) -> None:
 
     opening = acct.opening_balance
 
-    # spending transactions charged to this account
+    # all spending transactions charged to this account (includes bill transactions)
     spent = db.scalar(
         select(func.coalesce(func.sum(Transaction.amount), 0))
         .where(Transaction.account_id == account_id)
-    ) or Decimal("0")
-
-    # bill charges to this account (subscription charges, utility autopay, etc.)
-    bill_charges = db.scalar(
-        select(func.coalesce(func.sum(FixedBillPayment.paid_amount), 0))
-        .join(FixedBill, FixedBillPayment.bill_id == FixedBill.id)
-        .where(FixedBill.account_id == account_id)
     ) or Decimal("0")
 
     # money transferred out of this account
@@ -71,11 +65,9 @@ def recompute_balance(db: Session, account_id: str) -> None:
     ) or Decimal("0")
 
     if acct.type == "credit_card":
-        # charges (spending + bills) increase balance; payments + credits reduce it
-        acct.current_balance = opening + spent + bill_charges - xfer_in - credits
+        acct.current_balance = opening + spent - xfer_in - credits
     else:
-        # income + transfers in + credits increase balance; spending + bills + transfers out reduce it
-        acct.current_balance = opening + income - spent - bill_charges - xfer_out + xfer_in + credits
+        acct.current_balance = opening + income - spent - xfer_out + xfer_in + credits
 
 
 def recompute_all_balances(db: Session) -> None:
@@ -147,6 +139,7 @@ def get_transactions(
     end: datetime.date | None = None,
     account_id: str | None = None,
     category: str | None = None,
+    merchant: str | None = None,
     limit: int = 500,
     offset: int = 0,
 ) -> list[Transaction]:
@@ -159,6 +152,8 @@ def get_transactions(
         q = q.where(Transaction.account_id == account_id)
     if category:
         q = q.where(Transaction.category == category)
+    if merchant:
+        q = q.where(Transaction.merchant == merchant)
     return list(db.scalars(q.limit(limit).offset(offset)).all())
 
 
@@ -368,8 +363,10 @@ def get_waterfall(db: Session, pay_month: datetime.date) -> WaterfallOut:
         after_fixed,
     )
 
+    # exclude bill transactions — those are budgeted via fixed_bills_total above
     spent = db.scalar(
         select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+            Transaction.bill_id == None,  # noqa: E711
             extract("year", Transaction.date) == pay_month.year,
             extract("month", Transaction.date) == pay_month.month,
         )
@@ -434,17 +431,33 @@ def update_bill(db: Session, bill_id: str, data: FixedBillUpdate) -> FixedBill |
     return bill
 
 
+def _txn_to_payment_dict(txn: Transaction, bill_name: str) -> dict:
+    return {
+        "id": txn.id,
+        "bill_id": txn.bill_id,
+        "paid_date": txn.date,
+        "paid_amount": txn.amount,
+        "period_month": txn.date.replace(day=1),
+        "bill_name": bill_name,
+        "account_id": txn.account_id,
+    }
+
+
 def get_bill_payments(
     db: Session, bill_id: str, month: datetime.date | None = None
-) -> list[FixedBillPayment]:
+) -> list[dict]:
     q = (
-        select(FixedBillPayment)
-        .where(FixedBillPayment.bill_id == bill_id)
-        .order_by(FixedBillPayment.paid_date.desc())
+        select(Transaction, FixedBill.name.label("bill_name"))
+        .join(FixedBill, Transaction.bill_id == FixedBill.id)
+        .where(Transaction.bill_id == bill_id)
+        .order_by(Transaction.date.desc())
     )
     if month:
-        q = q.where(FixedBillPayment.period_month == month)
-    return list(db.scalars(q).all())
+        q = q.where(
+            extract("year", Transaction.date) == month.year,
+            extract("month", Transaction.date) == month.month,
+        )
+    return [_txn_to_payment_dict(txn, bill_name) for txn, bill_name in db.execute(q).all()]
 
 
 def get_all_bill_payments(
@@ -455,59 +468,65 @@ def get_all_bill_payments(
     end: datetime.date | None = None,
 ) -> list[dict]:
     q = (
-        select(FixedBillPayment, FixedBill.name.label("bill_name"), FixedBill.account_id.label("acct_id"))
-        .join(FixedBill, FixedBillPayment.bill_id == FixedBill.id)
-        .order_by(FixedBillPayment.paid_date.desc())
+        select(Transaction, FixedBill.name.label("bill_name"))
+        .join(FixedBill, Transaction.bill_id == FixedBill.id)
+        .where(Transaction.bill_id != None)  # noqa: E711
+        .order_by(Transaction.date.desc())
     )
     if month:
-        q = q.where(FixedBillPayment.period_month == month)
+        q = q.where(
+            extract("year", Transaction.date) == month.year,
+            extract("month", Transaction.date) == month.month,
+        )
     if account_id:
-        q = q.where(FixedBill.account_id == account_id)
+        q = q.where(Transaction.account_id == account_id)
     if start:
-        q = q.where(FixedBillPayment.paid_date >= start)
+        q = q.where(Transaction.date >= start)
     if end:
-        q = q.where(FixedBillPayment.paid_date <= end)
-    return [
-        {
-            "id": p.id,
-            "bill_id": p.bill_id,
-            "paid_date": p.paid_date,
-            "paid_amount": p.paid_amount,
-            "period_month": p.period_month,
-            "bill_name": bill_name,
-            "account_id": acct_id,
-        }
-        for p, bill_name, acct_id in db.execute(q).all()
-    ]
+        q = q.where(Transaction.date <= end)
+    return [_txn_to_payment_dict(txn, bill_name) for txn, bill_name in db.execute(q).all()]
 
 
 def record_payment(
     db: Session, bill_id: str, data: FixedBillPaymentCreate
-) -> FixedBillPayment:
-    payment = FixedBillPayment(bill_id=bill_id, **data.model_dump())
-    db.add(payment)
-    db.flush()
-
+) -> dict:
     bill = db.get(FixedBill, bill_id)
-    if bill:
-        recompute_balance(db, bill.account_id)
+    if not bill:
+        raise ValueError(f"Bill {bill_id} not found")
 
+    category = bill.category or bill.name
+    merchant_name = bill.merchant or bill.name
+
+    txn = Transaction(
+        date=data.paid_date,
+        account_id=bill.account_id,
+        amount=data.paid_amount,
+        category=category,
+        merchant=merchant_name,
+        tag="fixed",
+        bill_id=bill_id,
+    )
+    db.add(txn)
+
+    merchant_rec = db.scalars(select(Merchant).where(Merchant.name == merchant_name)).first()
+    if merchant_rec:
+        merchant_rec.default_category = category
+        txn.merchant_id = merchant_rec.id
+    else:
+        merchant_rec = Merchant(name=merchant_name, default_category=category)
+        db.add(merchant_rec)
+        db.flush()
+        txn.merchant_id = merchant_rec.id
+
+    db.flush()
+    recompute_balance(db, bill.account_id)
     db.commit()
-    db.refresh(payment)
-    return payment
+    db.refresh(txn)
+    return _txn_to_payment_dict(txn, bill.name)
 
 
 def delete_bill_payment(db: Session, payment_id: str) -> bool:
-    payment = db.get(FixedBillPayment, payment_id)
-    if not payment:
-        return False
-    bill = db.get(FixedBill, payment.bill_id)
-    db.delete(payment)
-    db.flush()
-    if bill:
-        recompute_balance(db, bill.account_id)
-    db.commit()
-    return True
+    return delete_transaction(db, payment_id)
 
 
 # ── Income ─────────────────────────────────────────────────────────────────────
@@ -720,6 +739,22 @@ def create_credit(db: Session, data: AccountCreditCreate) -> AccountCredit:
     return credit
 
 
+def update_credit(db: Session, credit_id: str, data: AccountCreditUpdate) -> AccountCredit | None:
+    credit = db.get(AccountCredit, credit_id)
+    if not credit:
+        return None
+    old_account_id = credit.account_id
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(credit, field, value)
+    db.flush()
+    recompute_balance(db, credit.account_id)
+    if old_account_id != credit.account_id:
+        recompute_balance(db, old_account_id)
+    db.commit()
+    db.refresh(credit)
+    return credit
+
+
 def delete_credit(db: Session, credit_id: str) -> bool:
     credit = db.get(AccountCredit, credit_id)
     if not credit:
@@ -728,5 +763,46 @@ def delete_credit(db: Session, credit_id: str) -> bool:
     db.delete(credit)
     db.flush()
     recompute_balance(db, account_id)
+    db.commit()
+    return True
+
+
+# ── Promo APR Windows ──────────────────────────────────────────────────────────
+
+def get_promo_windows(
+    db: Session, account_id: str | None = None
+) -> list[PromoAprWindow]:
+    q = select(PromoAprWindow).order_by(PromoAprWindow.promo_end_date)
+    if account_id:
+        q = q.where(PromoAprWindow.account_id == account_id)
+    return list(db.scalars(q).all())
+
+
+def create_promo_window(db: Session, data: PromoAprWindowCreate) -> PromoAprWindow:
+    window = PromoAprWindow(**data.model_dump())
+    db.add(window)
+    db.commit()
+    db.refresh(window)
+    return window
+
+
+def update_promo_window(
+    db: Session, window_id: str, data: PromoAprWindowUpdate
+) -> PromoAprWindow | None:
+    window = db.get(PromoAprWindow, window_id)
+    if not window:
+        return None
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(window, field, value)
+    db.commit()
+    db.refresh(window)
+    return window
+
+
+def delete_promo_window(db: Session, window_id: str) -> bool:
+    window = db.get(PromoAprWindow, window_id)
+    if not window:
+        return False
+    db.delete(window)
     db.commit()
     return True

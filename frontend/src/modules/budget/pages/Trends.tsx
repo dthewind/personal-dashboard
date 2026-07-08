@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart,
@@ -69,9 +70,8 @@ export default function Trends() {
   const avgPerTxn = count > 0 ? total / count : 0
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-white">Trends</h1>
+    <PageShell>
+      <div className="flex justify-end">
         <DateRangePicker value={range} onChange={setRange} />
       </div>
 
@@ -166,6 +166,6 @@ export default function Trends() {
           )}
         </>
       )}
-    </div>
+    </PageShell>
   )
 }

@@ -7,16 +7,18 @@ from app.core.database import get_db
 from . import crud
 from .schemas import (
     AccountCreate, AccountOut, AccountUpdate,
-    AccountCreditCreate, AccountCreditOut,
+    AccountCreditCreate, AccountCreditOut, AccountCreditUpdate,
     AllocationCreate, AllocationOut,
     FixedBillCreate, FixedBillOut, FixedBillPaymentCreate, FixedBillPaymentOut, FixedBillUpdate,
     IncomePeriodCreate, IncomePeriodOut, IncomePeriodUpdate,
     IncomeEntryCreate, IncomeEntryOut, IncomeEntryUpdate,
     MerchantOut,
+    PromoAprWindowCreate, PromoAprWindowOut, PromoAprWindowUpdate,
     TransactionBulkCreate, TransactionCreate, TransactionOut, TransactionUpdate,
     TransferCreate, TransferOut, TransferUpdate,
     WaterfallOut,
 )
+# FixedBillPaymentCreate is still used by the Bills payment endpoints (same API shape)
 
 router = APIRouter(prefix="/api/budget", tags=["budget"])
 
@@ -64,11 +66,12 @@ def list_transactions(
     end: datetime.date | None = None,
     account_id: str | None = None,
     category: str | None = None,
+    merchant: str | None = None,
     limit: int = 500,
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
-    return crud.get_transactions(db, start=start, end=end, account_id=account_id, category=category, limit=limit, offset=offset)
+    return crud.get_transactions(db, start=start, end=end, account_id=account_id, category=category, merchant=merchant, limit=limit, offset=offset)
 
 
 @router.post("/transactions", response_model=TransactionOut, status_code=201)
@@ -329,7 +332,41 @@ def create_credit(data: AccountCreditCreate, db: Session = Depends(get_db)):
     return crud.create_credit(db, data)
 
 
+@router.patch("/credits/{credit_id}", response_model=AccountCreditOut)
+def update_credit(credit_id: str, data: AccountCreditUpdate, db: Session = Depends(get_db)):
+    result = crud.update_credit(db, credit_id, data)
+    if not result:
+        raise HTTPException(404, "Credit not found")
+    return result
+
+
 @router.delete("/credits/{credit_id}", status_code=204)
 def delete_credit(credit_id: str, db: Session = Depends(get_db)):
     if not crud.delete_credit(db, credit_id):
         raise HTTPException(404, "Credit not found")
+
+
+# ── Promo APR Windows ──────────────────────────────────────────────────────────
+
+@router.get("/promo-windows", response_model=list[PromoAprWindowOut])
+def list_promo_windows(account_id: str | None = None, db: Session = Depends(get_db)):
+    return crud.get_promo_windows(db, account_id=account_id)
+
+
+@router.post("/promo-windows", response_model=PromoAprWindowOut, status_code=201)
+def create_promo_window(data: PromoAprWindowCreate, db: Session = Depends(get_db)):
+    return crud.create_promo_window(db, data)
+
+
+@router.patch("/promo-windows/{window_id}", response_model=PromoAprWindowOut)
+def update_promo_window(window_id: str, data: PromoAprWindowUpdate, db: Session = Depends(get_db)):
+    window = crud.update_promo_window(db, window_id, data)
+    if not window:
+        raise HTTPException(404, "Promo window not found")
+    return window
+
+
+@router.delete("/promo-windows/{window_id}", status_code=204)
+def delete_promo_window(window_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_promo_window(db, window_id):
+        raise HTTPException(404, "Promo window not found")

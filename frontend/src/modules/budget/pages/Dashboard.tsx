@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
-import type { Account, AccountCreate, AccountType, AllocationCreate, IncomeEntryCreate, IncomeType, WaterfallData } from '../types'
+import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, IncomeEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
 
@@ -95,142 +96,337 @@ function Waterfall({ w }: { w: WaterfallData }) {
   )
 }
 
-// ── Account card ──────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function AccountCard({ account }: { account: Account }) {
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function ordinal(n: number): string {
+  const v = n % 100
+  const suffix = (v >= 11 && v <= 13) ? 'th' : ['th','st','nd','rd'][Math.min(v % 10, 3)]
+  return `${n}${suffix}`
+}
+
+const AUTOPAY_LABEL: Record<AutopayType, string> = { off: 'No autopay', minimum: 'Autopay min', full: 'Autopay full' }
+const AUTOPAY_COLOR: Record<AutopayType, string> = { off: 'text-red-400', minimum: 'text-amber-400', full: 'text-emerald-400' }
+
+// ── Account edit modal ────────────────────────────────────────────────────────
+
+function AccountEditModal({ account, onClose }: { account: Account; onClose: () => void }) {
   const qc = useQueryClient()
   const isCredit = account.type === 'credit_card'
-  const [editing, setEditing] = useState(false)
   const [name, setName] = useState(account.name)
-  // reconcile_to: user enters the actual current balance; backend back-calculates opening_balance
   const [reconcileTo, setReconcileTo] = useState(String(account.current_balance))
   const [limit, setLimit] = useState(String(account.credit_limit ?? ''))
-
-  function startEdit() {
-    setName(account.name)
-    setReconcileTo(String(account.current_balance))
-    setLimit(String(account.credit_limit ?? ''))
-    setEditing(true)
-  }
+  const [apr, setApr] = useState(String(account.apr ?? ''))
+  const [stmtDay, setStmtDay] = useState(String(account.statement_close_day ?? ''))
+  const [dueDay, setDueDay] = useState(String(account.due_day ?? ''))
+  const [autopay, setAutopay] = useState<AutopayType | ''>(account.autopay ?? '')
+  const [annualFee, setAnnualFee] = useState(String(account.annual_fee ?? ''))
+  const [annualFeeMonth, setAnnualFeeMonth] = useState(String(account.annual_fee_month ?? ''))
+  const [last4, setLast4] = useState(account.last_4 ?? '')
 
   const updateMutation = useMutation({
     mutationFn: () =>
       api.accounts.update(account.id, {
         name: name.trim() || account.name,
         reconcile_to: parseFloat(reconcileTo) || 0,
-        ...(isCredit && { credit_limit: limit ? parseFloat(limit) : undefined }),
+        ...(isCredit && {
+          credit_limit: limit ? parseFloat(limit) : undefined,
+          apr: apr ? parseFloat(apr) : undefined,
+          statement_close_day: stmtDay ? parseInt(stmtDay) : undefined,
+          due_day: dueDay ? parseInt(dueDay) : undefined,
+          autopay: (autopay || undefined) as AutopayType | undefined,
+          annual_fee: annualFee ? parseFloat(annualFee) : undefined,
+          annual_fee_month: annualFeeMonth ? parseInt(annualFeeMonth) : undefined,
+          last_4: last4.trim() || undefined,
+        }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounts'] })
       qc.invalidateQueries({ queryKey: ['waterfall'] })
-      setEditing(false)
+      onClose()
     },
   })
 
-  const pct =
-    isCredit && account.credit_limit
-      ? Math.min((account.current_balance / account.credit_limit) * 100, 100)
-      : 0
-  const barColor =
-    pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+  const inp = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500'
+  const dollarInp = 'w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500'
 
-  const dollarInput = 'w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500 pl-6'
-
-  if (editing) {
-    return (
-      <div className="bg-gray-900 border border-indigo-600 rounded-xl p-4 space-y-2">
-        <input
-          autoFocus
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === 'Escape' && setEditing(false)}
-          placeholder="Account name"
-          className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-        />
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm space-y-4 my-auto">
+        <h3 className="text-white font-semibold text-sm">Edit Account</h3>
+        <input autoFocus value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === 'Escape' && onClose()} placeholder="Account name" className={inp} />
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Current Balance (reconcile)</label>
+          <label className="block text-xs text-gray-400 mb-1">Current Balance (reconcile)</label>
           <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-            <input
-              type="number"
-              step="0.01"
-              value={reconcileTo}
-              onChange={e => setReconcileTo(e.target.value)}
-              placeholder="0.00"
-              className={dollarInput}
-            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input type="number" step="0.01" value={reconcileTo} onChange={e => setReconcileTo(e.target.value)} className={dollarInp} />
           </div>
           <p className="text-xs text-gray-600 mt-1">Enter the real-world balance to reconcile.</p>
         </div>
         {isCredit && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Credit Limit</label>
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-              <input
-                type="number"
-                step="0.01"
-                value={limit}
-                onChange={e => setLimit(e.target.value)}
-                placeholder="0.00"
-                className={dollarInput}
-              />
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Credit Limit</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input type="number" step="0.01" value={limit} onChange={e => setLimit(e.target.value)} className={dollarInp} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">APR %</label>
+                <input type="number" step="0.01" value={apr} onChange={e => setApr(e.target.value)} placeholder="e.g. 24.99" className={inp} />
+              </div>
             </div>
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Statement Closes (day)</label>
+                <input type="number" min="1" max="31" value={stmtDay} onChange={e => setStmtDay(e.target.value)} placeholder="1–31" className={inp} />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Payment Due (day)</label>
+                <input type="number" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} placeholder="1–31" className={inp} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Autopay</label>
+              <select value={autopay} onChange={e => setAutopay(e.target.value as AutopayType | '')} className={inp}>
+                <option value="">— not set —</option>
+                <option value="off">Off (manual payments)</option>
+                <option value="minimum">Minimum payment</option>
+                <option value="full">Full balance</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Annual Fee</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input type="number" step="0.01" value={annualFee} onChange={e => setAnnualFee(e.target.value)} placeholder="0.00" className={dollarInp} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Fee Month</label>
+                <select value={annualFeeMonth} onChange={e => setAnnualFeeMonth(e.target.value)} className={inp}>
+                  <option value="">—</option>
+                  {MONTH_SHORT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Last 4 Digits</label>
+              <input value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="1234" maxLength={4} className={inp} />
+            </div>
+          </>
         )}
         <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => setEditing(false)}
-            className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded py-1.5 text-xs"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => updateMutation.mutate()}
-            disabled={updateMutation.isPending}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded py-1.5 text-xs font-medium"
-          >
+          <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg py-2 text-sm">Cancel</button>
+          <button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium">
             {updateMutation.isPending ? '…' : 'Save'}
           </button>
         </div>
       </div>
-    )
-  }
+    </div>
+  )
+}
+
+// ── Account table rows ────────────────────────────────────────────────────────
+
+function CreditAccountRow({ account, onEdit }: { account: Account; onEdit: () => void }) {
+  const pct = account.credit_limit
+    ? Math.min((account.current_balance / account.credit_limit) * 100, 100)
+    : 0
+  const barColor = pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+  const available = account.credit_limit != null ? account.credit_limit - account.current_balance : null
+
+  const meta = useMemo(() => {
+    const parts: { text: string; cls: string }[] = []
+    if (account.last_4) parts.push({ text: `···${account.last_4}`, cls: 'text-gray-600' })
+    if (account.statement_close_day) parts.push({ text: `stmt ${ordinal(account.statement_close_day)}`, cls: 'text-gray-600' })
+    if (account.due_day) parts.push({ text: `due ${ordinal(account.due_day)}`, cls: 'text-gray-600' })
+    if (account.apr) parts.push({ text: `${account.apr}% APR`, cls: 'text-gray-600' })
+    if (account.autopay) parts.push({ text: AUTOPAY_LABEL[account.autopay], cls: AUTOPAY_COLOR[account.autopay] })
+    if (account.annual_fee) {
+      const mo = account.annual_fee_month ? ` ${MONTH_SHORT[account.annual_fee_month - 1]}` : ''
+      parts.push({ text: `$${account.annual_fee}/yr${mo}`, cls: 'text-gray-600' })
+    }
+    return parts
+  }, [account])
 
   return (
-    <div
-      className="bg-gray-900 border border-gray-800 rounded-xl p-4 cursor-default select-none hover:border-gray-700 transition-colors"
-      onDoubleClick={startEdit}
-      title="Double-click to edit"
-    >
-      <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <div className="text-xs text-gray-400 truncate">{account.name}</div>
-          <div
-            className={`text-lg font-semibold font-mono mt-0.5 ${
-              isCredit ? 'text-white' : 'text-emerald-400'
-            }`}
-          >
-            {fmt(account.current_balance)}
-          </div>
+    <tr className="group border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30 transition-colors">
+      <td className="py-2 px-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-200">{account.name}</span>
+          <button onClick={onEdit} className="text-xs text-gray-700 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+            edit
+          </button>
         </div>
-        {account.credit_limit && (
-          <div className="text-xs text-gray-500 flex-shrink-0">
-            / {fmt(account.credit_limit)}
+        {meta.length > 0 && (
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+            {meta.map((m, i) => (
+              <span key={i} className={`text-xs ${m.cls}`}>{m.text}</span>
+            ))}
           </div>
         )}
-      </div>
-      {isCredit && account.credit_limit && (
-        <div className="mt-2">
-          <div className="h-1.5 bg-gray-800 rounded-full">
-            <div
-              className={`h-full rounded-full transition-all ${barColor}`}
-              style={{ width: `${pct}%` }}
-            />
+      </td>
+      <td className="py-2 px-4 text-right font-mono text-sm text-white align-top">{fmt(account.current_balance)}</td>
+      <td className="py-2 px-4 text-right font-mono text-sm text-gray-500 align-top">{account.credit_limit ? fmt(account.credit_limit) : '—'}</td>
+      <td className="py-2 px-4 text-right font-mono text-sm text-emerald-400 align-top">{available != null ? fmt(available) : '—'}</td>
+      <td className="py-2 px-4 align-top">
+        <div className="flex items-center gap-2 justify-end pt-0.5">
+          <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
           </div>
-          <div className="text-xs text-gray-500 mt-1">{Math.round(pct)}% used</div>
+          <span className="text-xs text-gray-500 w-8 text-right">{Math.round(pct)}%</span>
         </div>
-      )}
+      </td>
+    </tr>
+  )
+}
+
+function SimpleAccountRow({ account, onEdit }: { account: Account; onEdit: () => void }) {
+  const balColor = account.type === 'investment' ? 'text-indigo-300' : 'text-emerald-400'
+  return (
+    <tr className="group border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30 transition-colors">
+      <td className="py-2.5 px-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-200">{account.name}</span>
+          <span className="text-xs text-gray-600 capitalize">{account.type}</span>
+          <button onClick={onEdit} className="text-xs text-gray-700 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+            edit
+          </button>
+        </div>
+      </td>
+      <td className={`py-2.5 px-4 text-right font-mono text-sm ${balColor}`}>{fmt(account.current_balance)}</td>
+    </tr>
+  )
+}
+
+function CreditAccountSection({ accounts, onEdit }: { accounts: Account[]; onEdit: (a: Account) => void }) {
+  const total = accounts.reduce((s, a) => s + a.current_balance, 0)
+  const totalLimit = accounts.reduce((s, a) => s + (a.credit_limit ?? 0), 0)
+  const totalAvail = totalLimit > 0 ? totalLimit - total : null
+  const totalPct = totalLimit > 0 ? Math.min((total / totalLimit) * 100, 100) : 0
+  const totalBarColor = totalPct > 80 ? 'bg-red-500' : totalPct > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Credit Cards</span>
+      </div>
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-gray-800/60">
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-left">Account</th>
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-right">Balance</th>
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-right">Limit</th>
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-right">Available</th>
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-right">Util</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accounts.map(a => <CreditAccountRow key={a.id} account={a} onEdit={() => onEdit(a)} />)}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-gray-700 bg-gray-800/20">
+            <td className="py-2 px-4 text-xs text-gray-500 font-medium">Total</td>
+            <td className="py-2 px-4 text-right font-mono text-sm font-semibold text-white">{fmt(total)}</td>
+            <td className="py-2 px-4 text-right font-mono text-sm text-gray-500">{totalLimit > 0 ? fmt(totalLimit) : ''}</td>
+            <td className="py-2 px-4 text-right font-mono text-sm text-emerald-400">{totalAvail != null ? fmt(totalAvail) : ''}</td>
+            <td className="py-2 px-4">
+              {totalLimit > 0 && (
+                <div className="flex items-center gap-2 justify-end">
+                  <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${totalBarColor}`} style={{ width: `${totalPct}%` }} />
+                  </div>
+                  <span className="text-xs text-gray-400 font-medium w-8 text-right">{Math.round(totalPct)}%</span>
+                </div>
+              )}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+function SimpleAccountSection({ label, accounts, onEdit }: { label: string; accounts: Account[]; onEdit: (a: Account) => void }) {
+  const total = accounts.reduce((s, a) => s + a.current_balance, 0)
+  const balColor = accounts[0]?.type === 'investment' ? 'text-indigo-300' : 'text-emerald-400'
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-gray-800/60">
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-left">Account</th>
+            <th className="text-xs text-gray-600 font-normal py-1.5 px-4 text-right">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {accounts.map(a => <SimpleAccountRow key={a.id} account={a} onEdit={() => onEdit(a)} />)}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-gray-700 bg-gray-800/20">
+            <td className="py-2 px-4 text-xs text-gray-500 font-medium">Total</td>
+            <td className={`py-2 px-4 text-right font-mono text-sm font-semibold ${balColor}`}>{fmt(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+function NetWorthSummary({ accounts }: { accounts: Account[] }) {
+  const cash = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const credit = accounts.filter(a => a.type === 'credit_card')
+  const invest = accounts.filter(a => a.type === 'investment')
+  const totalCash = cash.reduce((s, a) => s + a.current_balance, 0)
+  const totalDebt = credit.reduce((s, a) => s + a.current_balance, 0)
+  const totalInvest = invest.reduce((s, a) => s + a.current_balance, 0)
+  const netWorth = totalCash + totalInvest - totalDebt
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
+        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Net Worth</span>
+      </div>
+      <table className="w-full">
+        <tbody>
+          {cash.length > 0 && (
+            <tr className="border-b border-gray-800/60">
+              <td className="py-2 px-4 text-sm text-gray-400">Cash &amp; Savings</td>
+              <td className="py-2 px-4 text-right font-mono text-sm text-emerald-400">{fmt(totalCash)}</td>
+            </tr>
+          )}
+          {invest.length > 0 && (
+            <tr className="border-b border-gray-800/60">
+              <td className="py-2 px-4 text-sm text-gray-400">Investments</td>
+              <td className="py-2 px-4 text-right font-mono text-sm text-indigo-300">{fmt(totalInvest)}</td>
+            </tr>
+          )}
+          {credit.length > 0 && (
+            <tr className="border-b border-gray-800/60">
+              <td className="py-2 px-4 text-sm text-gray-400">Credit Card Debt</td>
+              <td className="py-2 px-4 text-right font-mono text-sm text-red-400">({fmt(totalDebt)})</td>
+            </tr>
+          )}
+          <tr className="bg-gray-800/20">
+            <td className="py-2.5 px-4 text-sm font-semibold text-white">Net Worth</td>
+            <td className={`py-2.5 px-4 text-right font-mono text-sm font-semibold ${netWorth >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {netWorth < 0 ? `(${fmt(Math.abs(netWorth))})` : fmt(netWorth)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -249,80 +445,123 @@ function AddAccountModal({ onClose, onSave }: { onClose: () => void; onSave: (d:
   const [type, setType] = useState<AccountType>('credit_card')
   const [limit, setLimit] = useState('')
   const [balance, setBalance] = useState('')
+  const [apr, setApr] = useState('')
+  const [stmtDay, setStmtDay] = useState('')
+  const [dueDay, setDueDay] = useState('')
+  const [autopay, setAutopay] = useState<AutopayType | ''>('')
+  const [annualFee, setAnnualFee] = useState('')
+  const [annualFeeMonth, setAnnualFeeMonth] = useState('')
+  const [last4, setLast4] = useState('')
+  const isCredit = type === 'credit_card'
   const valid = name.trim()
+
+  const inp = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500'
+  const dollarInp = 'w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500'
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm space-y-4">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm space-y-4 my-auto">
         <h3 className="text-white font-semibold">Add Account</h3>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Name</label>
-          <input
-            autoFocus
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="e.g. Chase Visa"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-          />
+          <input autoFocus value={name} onChange={e => setName(e.target.value)}
+            placeholder="e.g. Chase Visa" className={inp} />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Type</label>
           <div className="flex flex-wrap gap-2">
             {ACCOUNT_TYPES.map(t => (
-              <button
-                key={t.value}
-                onClick={() => setType(t.value)}
-                className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                  type === t.value ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
-                }`}
-              >
+              <button key={t.value} onClick={() => setType(t.value)}
+                className={`px-3 py-1 rounded-lg text-sm transition-colors ${type === t.value ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
                 {t.label}
               </button>
             ))}
           </div>
         </div>
-        {type === 'credit_card' && (
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Credit Limit</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-              <input
-                type="number"
-                step="0.01"
-                value={limit}
-                onChange={e => setLimit(e.target.value)}
-                placeholder="0.00"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-        )}
         <div>
           <label className="block text-xs text-gray-400 mb-1">Current Balance</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-            <input
-              type="number"
-              step="0.01"
-              value={balance}
-              onChange={e => setBalance(e.target.value)}
-              placeholder="0.00"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-            />
+            <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0.00" className={dollarInp} />
           </div>
           <p className="text-xs text-gray-600 mt-1">Your balance today — becomes the starting point.</p>
         </div>
+        {isCredit && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Credit Limit</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input type="number" step="0.01" value={limit} onChange={e => setLimit(e.target.value)} placeholder="0.00" className={dollarInp} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">APR %</label>
+                <input type="number" step="0.01" value={apr} onChange={e => setApr(e.target.value)} placeholder="e.g. 24.99" className={inp} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Statement Closes (day)</label>
+                <input type="number" min="1" max="31" value={stmtDay} onChange={e => setStmtDay(e.target.value)} placeholder="1–31" className={inp} />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Payment Due (day)</label>
+                <input type="number" min="1" max="31" value={dueDay} onChange={e => setDueDay(e.target.value)} placeholder="1–31" className={inp} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Autopay</label>
+              <select value={autopay} onChange={e => setAutopay(e.target.value as AutopayType | '')} className={inp}>
+                <option value="">— not set —</option>
+                <option value="off">Off (manual payments)</option>
+                <option value="minimum">Minimum payment</option>
+                <option value="full">Full balance</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Annual Fee</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                  <input type="number" step="0.01" value={annualFee} onChange={e => setAnnualFee(e.target.value)} placeholder="0.00" className={dollarInp} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Fee Month</label>
+                <select value={annualFeeMonth} onChange={e => setAnnualFeeMonth(e.target.value)} className={inp}>
+                  <option value="">—</option>
+                  {MONTH_SHORT.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Last 4 Digits</label>
+              <input value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="1234" maxLength={4} className={inp} />
+            </div>
+          </>
+        )}
         <div className="flex gap-3 pt-1">
           <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl py-2.5 text-sm">Cancel</button>
           <button
             disabled={!valid}
-            onClick={() =>
-              onSave({
-                name: name.trim(),
-                type,
+            onClick={() => onSave({
+              name: name.trim(),
+              type,
+              opening_balance: balance ? parseFloat(balance) : undefined,
+              ...(isCredit && {
                 credit_limit: limit ? parseFloat(limit) : undefined,
-                opening_balance: balance ? parseFloat(balance) : undefined,
-              })
-            }
+                apr: apr ? parseFloat(apr) : undefined,
+                statement_close_day: stmtDay ? parseInt(stmtDay) : undefined,
+                due_day: dueDay ? parseInt(dueDay) : undefined,
+                autopay: (autopay || undefined) as AutopayType | undefined,
+                annual_fee: annualFee ? parseFloat(annualFee) : undefined,
+                annual_fee_month: annualFeeMonth ? parseInt(annualFeeMonth) : undefined,
+                last_4: last4 || undefined,
+              }),
+            })}
             className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl py-2.5 text-sm font-medium"
           >
             Save
@@ -544,19 +783,298 @@ function AllocationSection({ month }: { month: string }) {
   )
 }
 
-// ── Account sorting ───────────────────────────────────────────────────────────
+// ── Promo APR Windows ─────────────────────────────────────────────────────────
 
-type SortKey = 'name' | 'balance' | 'utilization' | 'type'
-
-function sortAccounts(list: Account[], by: SortKey): Account[] {
-  return [...list].sort((a, b) => {
-    if (by === 'name') return a.name.localeCompare(b.name)
-    if (by === 'balance') return b.current_balance - a.current_balance
-    const ua = a.credit_limit ? a.current_balance / a.credit_limit : 0
-    const ub = b.credit_limit ? b.current_balance / b.credit_limit : 0
-    return ub - ua
-  })
+function daysUntil(dateStr: string): number {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const end = new Date(dateStr + 'T00:00:00')
+  return Math.round((end.getTime() - today.getTime()) / 86400000)
 }
+
+function PromoWindowCard({
+  window: w,
+  accountName,
+  onEdit,
+}: {
+  window: PromoAprWindow
+  accountName: string
+  onEdit: () => void
+}) {
+  const days = daysUntil(w.promo_end_date)
+  const deadlineColor = days < 90 ? 'text-red-400' : days < 180 ? 'text-amber-400' : 'text-gray-400'
+  const pct = w.original_amount && w.original_amount > 0
+    ? Math.max(0, Math.min(100, ((w.original_amount - w.balance_amount) / w.original_amount) * 100))
+    : null
+  const monthsLeft = days / 30.44
+  const monthsToPayoff = w.required_monthly_payment && w.required_monthly_payment > 0
+    ? w.balance_amount / w.required_monthly_payment
+    : null
+  const payoffBehind = monthsToPayoff !== null && monthsToPayoff > monthsLeft
+
+  return (
+    <div
+      className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3 cursor-pointer hover:border-gray-700 transition-colors"
+      onClick={onEdit}
+    >
+      <div className="flex justify-between items-start gap-2">
+        <div className="min-w-0">
+          <div className="text-xs text-indigo-400 font-medium truncate">{accountName}</div>
+          <div className="text-sm text-gray-200 mt-0.5">{w.description}</div>
+        </div>
+        <div className={`text-xs font-mono flex-shrink-0 ${deadlineColor}`}>
+          {days > 0 ? `${days}d` : 'expired'}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex justify-between items-baseline">
+          <span className="text-lg font-mono font-semibold text-white">{fmt(w.balance_amount)}</span>
+          {w.original_amount && (
+            <span className="text-xs text-gray-500">of {fmt(w.original_amount)}</span>
+          )}
+        </div>
+        {pct !== null && (
+          <div className="mt-1.5">
+            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="text-xs text-gray-600 mt-0.5">{Math.round(pct)}% paid off</div>
+          </div>
+        )}
+      </div>
+
+      {w.required_monthly_payment && (
+        <div className={`text-xs flex items-center gap-1.5 ${payoffBehind ? 'text-red-400' : 'text-gray-400'}`}>
+          <span>Required: {fmt(w.required_monthly_payment)}/mo</span>
+          {monthsToPayoff !== null && (
+            <>
+              <span className="text-gray-700">·</span>
+              <span>payoff in {Math.ceil(monthsToPayoff)} mo{payoffBehind ? ' ⚠' : ''}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="text-xs text-gray-600">
+        Expires {new Date(w.promo_end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+      </div>
+    </div>
+  )
+}
+
+function PromoWindowModal({
+  accounts,
+  initial,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  accounts: Account[]
+  initial?: PromoAprWindow
+  onClose: () => void
+  onSave: (data: PromoAprWindowCreate | PromoAprWindowUpdate) => void
+  onDelete?: () => void
+}) {
+  const [accountId, setAccountId] = useState(initial?.account_id ?? (accounts[0]?.id ?? ''))
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [endDate, setEndDate] = useState(initial?.promo_end_date ?? '')
+  const [purchaseDate, setPurchaseDate] = useState(initial?.purchase_date ?? '')
+  const [balance, setBalance] = useState(initial?.balance_amount != null ? String(initial.balance_amount) : '')
+  const [original, setOriginal] = useState(initial?.original_amount != null ? String(initial.original_amount) : '')
+  const [required, setRequired] = useState(initial?.required_monthly_payment != null ? String(initial.required_monthly_payment) : '')
+
+  const valid = accountId && description.trim() && endDate && purchaseDate && balance && parseFloat(balance) >= 0
+
+  function handleSave() {
+    const payload = {
+      account_id: accountId,
+      description: description.trim(),
+      promo_end_date: endDate,
+      purchase_date: purchaseDate,
+      balance_amount: parseFloat(balance),
+      ...(original ? { original_amount: parseFloat(original) } : { original_amount: null }),
+      ...(required ? { required_monthly_payment: parseFloat(required) } : { required_monthly_payment: null }),
+    }
+    onSave(payload)
+  }
+
+  const inputCls = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500'
+  const dollarCls = 'w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500'
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm space-y-4 max-h-[90vh] overflow-y-auto">
+        <h3 className="text-white font-semibold">{initial ? 'Edit' : 'Add'} Promo Financing</h3>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Account</label>
+          <select
+            value={accountId}
+            onChange={e => setAccountId(e.target.value)}
+            className={inputCls}
+          >
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Description</label>
+          <input
+            autoFocus
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="e.g. 0%-APR Refi Balance"
+            className={inputCls}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Purchase Date</label>
+            <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Promo Ends</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={inputCls} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Current Balance</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0.00" className={dollarCls} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Original Amount <span className="text-gray-600">(optional)</span></label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input type="number" step="0.01" value={original} onChange={e => setOriginal(e.target.value)} placeholder="0.00" className={dollarCls} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Required Monthly Payment <span className="text-gray-600">(optional — refi only)</span></label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input type="number" step="0.01" value={required} onChange={e => setRequired(e.target.value)} placeholder="0.00" className={dollarCls} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="px-3 py-2 bg-red-900/40 hover:bg-red-900/70 text-red-400 rounded-lg text-sm"
+            >
+              Delete
+            </button>
+          )}
+          <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            disabled={!valid}
+            onClick={handleSave}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PromoWindowsSection({ accounts }: { accounts: Account[] }) {
+  const qc = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [editing, setEditing] = useState<PromoAprWindow | null>(null)
+
+  const { data: windows = [] } = useQuery({
+    queryKey: ['promo-windows'],
+    queryFn: () => api.promoWindows.list(),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (data: PromoAprWindowCreate) => api.promoWindows.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['promo-windows'] }); setShowAdd(false) },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: PromoAprWindowUpdate }) =>
+      api.promoWindows.update(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['promo-windows'] }); setEditing(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.promoWindows.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['promo-windows'] }); setEditing(null) },
+  })
+
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+
+  if (windows.length === 0 && !showAdd) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Promo Financing</h2>
+          <button onClick={() => setShowAdd(true)} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
+        </div>
+        <p className="text-gray-600 text-sm">No promo windows tracked.</p>
+        {showAdd && (
+          <PromoWindowModal
+            accounts={accounts}
+            onClose={() => setShowAdd(false)}
+            onSave={data => createMutation.mutate(data as PromoAprWindowCreate)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Promo Financing</h2>
+        <button onClick={() => setShowAdd(true)} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {windows.map(w => (
+          <PromoWindowCard
+            key={w.id}
+            window={w}
+            accountName={accountMap[w.account_id] ?? 'Unknown'}
+            onEdit={() => setEditing(w)}
+          />
+        ))}
+      </div>
+
+      {showAdd && (
+        <PromoWindowModal
+          accounts={accounts}
+          onClose={() => setShowAdd(false)}
+          onSave={data => createMutation.mutate(data as PromoAprWindowCreate)}
+        />
+      )}
+      {editing && (
+        <PromoWindowModal
+          accounts={accounts}
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={data => updateMutation.mutate({ id: editing.id, data: data as PromoAprWindowUpdate })}
+          onDelete={() => deleteMutation.mutate(editing.id)}
+        />
+      )}
+    </div>
+  )
+}
+
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
@@ -565,7 +1083,7 @@ export default function Dashboard() {
   const [month, setMonth] = useState(currentMonthStr)
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAddIncome, setShowAddIncome] = useState(false)
-  const [sortBy, setSortBy] = useState<SortKey>('name')
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
 
   const { data: waterfall, isLoading: wLoading } = useQuery({
     queryKey: ['waterfall', month],
@@ -615,18 +1133,13 @@ export default function Dashboard() {
     spentPct > 90 ? 'bg-red-500' : spentPct > 70 ? 'bg-amber-500' : 'bg-indigo-500'
 
   const allAccounts = accounts ?? []
-  const effectiveSort = sortBy === 'type' ? 'name' : sortBy
-  const creditCards = sortAccounts(allAccounts.filter(a => a.type === 'credit_card'), effectiveSort)
-  const otherAccounts = sortAccounts(allAccounts.filter(a => a.type !== 'credit_card'), effectiveSort)
-  const cashAccounts = sortAccounts(allAccounts.filter(a => a.type === 'checking' || a.type === 'savings'), 'name')
-  const creditAccounts = sortAccounts(allAccounts.filter(a => a.type === 'credit_card'), 'name')
-  const investmentAccounts = sortAccounts(allAccounts.filter(a => a.type === 'investment'), 'name')
+  const creditAccounts = [...allAccounts.filter(a => a.type === 'credit_card')].sort((a, b) => a.name.localeCompare(b.name))
+  const cashAccounts = [...allAccounts.filter(a => a.type === 'checking' || a.type === 'savings')].sort((a, b) => a.name.localeCompare(b.name))
+  const investmentAccounts = [...allAccounts.filter(a => a.type === 'investment')].sort((a, b) => a.name.localeCompare(b.name))
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-xl font-semibold text-white">Dashboard</h1>
+    <PageShell>
+      <div className="flex justify-end">
         <MonthNav month={month} onChange={setMonth} />
       </div>
 
@@ -671,97 +1184,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Waterfall + Accounts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Waterfall w={w} />
+      {/* Waterfall */}
+      <Waterfall w={w} />
 
-        {/* Accounts */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider flex-shrink-0">
-              Accounts
-            </h2>
-            <div className="flex items-center gap-0.5 ml-1">
-              {(
-                [
-                  { key: 'name', label: 'Name' },
-                  { key: 'balance', label: 'Balance' },
-                  { key: 'utilization', label: 'Util%' },
-                  { key: 'type', label: 'Type' },
-                ] as { key: SortKey; label: string }[]
-              ).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setSortBy(key)}
-                  className={`px-2 py-0.5 rounded text-xs transition-colors ${
-                    sortBy === key
-                      ? 'text-white bg-gray-800'
-                      : 'text-gray-600 hover:text-gray-400'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowAddAccount(true)}
-              className="text-xs text-indigo-400 hover:text-indigo-300 ml-auto flex-shrink-0"
-            >
-              + Add
+      {/* Accounts */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Accounts</h2>
+          <button onClick={() => setShowAddAccount(true)} className="text-xs text-indigo-400 hover:text-indigo-300">
+            + Add
+          </button>
+        </div>
+
+        {allAccounts.length === 0 ? (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
+            <p className="text-gray-500 text-sm">No accounts yet</p>
+            <button onClick={() => setShowAddAccount(true)} className="mt-2 text-indigo-400 hover:text-indigo-300 text-sm">
+              + Add your first account
             </button>
           </div>
-
-          {allAccounts.length === 0 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
-              <p className="text-gray-500 text-sm">No accounts yet</p>
-              <button
-                onClick={() => setShowAddAccount(true)}
-                className="mt-2 text-indigo-400 hover:text-indigo-300 text-sm"
-              >
-                + Add your first account
-              </button>
-            </div>
-          )}
-
-          {sortBy === 'type' ? (
-            // Grouped by type
-            <div className="space-y-4">
-              {[
-                { label: 'Cash', items: cashAccounts },
-                { label: 'Credit', items: creditAccounts },
-                { label: 'Investments', items: investmentAccounts },
-              ]
-                .filter(g => g.items.length > 0)
-                .map(g => (
-                  <div key={g.label}>
-                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">{g.label}</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {g.items.map(a => <AccountCard key={a.id} account={a} />)}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          ) : (
-            // Flat list sorted by chosen key, credit cards first
-            <>
-              {creditCards.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {creditCards.map(a => <AccountCard key={a.id} account={a} />)}
-                </div>
-              )}
-              {otherAccounts.length > 0 && (
-                <>
-                  {creditCards.length > 0 && (
-                    <div className="text-xs text-gray-500 pt-1">Other</div>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {otherAccounts.map(a => <AccountCard key={a.id} account={a} />)}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
+        ) : (
+          <>
+            {creditAccounts.length > 0 && <CreditAccountSection accounts={creditAccounts} onEdit={setEditingAccount} />}
+            {cashAccounts.length > 0 && <SimpleAccountSection label="Cash" accounts={cashAccounts} onEdit={setEditingAccount} />}
+            {investmentAccounts.length > 0 && <SimpleAccountSection label="Investments" accounts={investmentAccounts} onEdit={setEditingAccount} />}
+            <NetWorthSummary accounts={allAccounts} />
+          </>
+        )}
       </div>
 
       {/* Income this month */}
@@ -803,6 +1252,9 @@ export default function Dashboard() {
       {/* Allocation */}
       <AllocationSection month={month} />
 
+      {/* Promo Financing */}
+      <PromoWindowsSection accounts={allAccounts} />
+
       {/* Modals */}
       {showAddAccount && (
         <AddAccountModal
@@ -817,6 +1269,9 @@ export default function Dashboard() {
           onSave={data => addIncomeMutation.mutate(data)}
         />
       )}
-    </div>
+      {editingAccount && (
+        <AccountEditModal account={editingAccount} onClose={() => setEditingAccount(null)} />
+      )}
+    </PageShell>
   )
 }

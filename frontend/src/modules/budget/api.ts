@@ -5,8 +5,9 @@ import type {
   IncomePeriod, IncomePeriodCreate, IncomePeriodUpdate,
   IncomeEntry, IncomeEntryCreate, IncomeEntryUpdate,
   Merchant,
+  PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate,
   Transaction, TransactionCreate,
-  AccountCredit, AccountCreditCreate,
+  AccountCredit, AccountCreditCreate, AccountCreditUpdate,
   Transfer, TransferCreate, TransferUpdate,
   WaterfallData,
 } from './types'
@@ -120,6 +121,8 @@ export const api = {
     },
     create: (data: AccountCreditCreate) =>
       req<AccountCredit>('/credits', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: AccountCreditUpdate) =>
+      req<AccountCredit>(`/credits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/credits/${id}`, { method: 'DELETE' }),
   },
 
@@ -152,5 +155,17 @@ export const api = {
       req<Allocation | null>(`/allocation?month=${month}`),
     upsert: (data: AllocationCreate) =>
       req<Allocation>('/allocation', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  promoWindows: {
+    list: (account_id?: string) => {
+      const q = account_id ? `?account_id=${account_id}` : ''
+      return req<PromoAprWindow[]>(`/promo-windows${q}`)
+    },
+    create: (data: PromoAprWindowCreate) =>
+      req<PromoAprWindow>('/promo-windows', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: PromoAprWindowUpdate) =>
+      req<PromoAprWindow>(`/promo-windows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/promo-windows/${id}`, { method: 'DELETE' }),
   },
 }

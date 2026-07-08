@@ -31,6 +31,10 @@ class Account(Base):
     apr: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
     statement_close_day: Mapped[int | None] = mapped_column(Integer)
     due_day: Mapped[int | None] = mapped_column(Integer)
+    autopay: Mapped[str | None] = mapped_column(String(10))  # 'off' | 'minimum' | 'full'
+    annual_fee: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    annual_fee_month: Mapped[int | None] = mapped_column(Integer)  # 1–12
+    last_4: Mapped[str | None] = mapped_column(String(4))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account")
@@ -50,6 +54,8 @@ class PromoAprWindow(Base):
     promo_end_date: Mapped[date] = mapped_column(Date, nullable=False)
     balance_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    required_monthly_payment: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
 
     account: Mapped["Account"] = relationship(back_populates="promo_apr_windows")
 
@@ -81,21 +87,10 @@ class FixedBill(Base):
     expected_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     is_estimated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    category: Mapped[str | None] = mapped_column(String(100))
+    merchant: Mapped[str | None] = mapped_column(String(200))
 
     account: Mapped["Account"] = relationship(back_populates="fixed_bills")
-    payments: Mapped[list["FixedBillPayment"]] = relationship(back_populates="bill")
-
-
-class FixedBillPayment(Base):
-    __tablename__ = "fixed_bill_payments"
-
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
-    bill_id: Mapped[str] = mapped_column(ForeignKey("fixed_bills.id"), nullable=False)
-    paid_date: Mapped[date] = mapped_column(Date, nullable=False)
-    paid_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    period_month: Mapped[date] = mapped_column(Date, nullable=False)
-
-    bill: Mapped["FixedBill"] = relationship(back_populates="payments")
 
 
 class Merchant(Base):
@@ -126,6 +121,7 @@ class Transaction(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text)
     reward_rule_id: Mapped[str | None] = mapped_column(ForeignKey("reward_rules.id"))
+    bill_id: Mapped[str | None] = mapped_column(ForeignKey("fixed_bills.id"))
 
     account: Mapped["Account"] = relationship(back_populates="transactions")
     merchant_ref: Mapped["Merchant | None"] = relationship(back_populates="transactions")
@@ -207,6 +203,7 @@ class AccountCredit(Base):
     date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     credit_type: Mapped[str] = mapped_column(String(50), nullable=False, default="cashback")
+    category: Mapped[str | None] = mapped_column(String(100))
 
     account: Mapped["Account"] = relationship(back_populates="credits")
 

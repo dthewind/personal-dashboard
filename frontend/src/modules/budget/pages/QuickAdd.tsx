@@ -106,8 +106,6 @@ export default function QuickAdd() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-xl font-semibold text-white mb-6">Quick Add</h1>
-
       {success && (
         <div className="mb-4 px-4 py-3 bg-emerald-950 border border-emerald-800 rounded-xl text-emerald-400 text-sm">
           Transaction saved ✓

@@ -2,6 +2,8 @@ export type AccountType = 'credit_card' | 'checking' | 'savings' | 'investment'
 export type TransactionTag = 'fixed' | 'variable' | 'one_off'
 export type IncomeType = 'contract' | 'interest' | 'tbill' | 'investment' | 'other'
 
+export type AutopayType = 'off' | 'minimum' | 'full'
+
 export interface Account {
   id: string
   name: string
@@ -12,6 +14,10 @@ export interface Account {
   apr: number | null
   statement_close_day: number | null
   due_day: number | null
+  autopay: AutopayType | null
+  annual_fee: number | null
+  annual_fee_month: number | null  // 1–12
+  last_4: string | null
   is_active: boolean
 }
 
@@ -23,6 +29,10 @@ export interface AccountCreate {
   apr?: number
   statement_close_day?: number
   due_day?: number
+  autopay?: AutopayType
+  annual_fee?: number
+  annual_fee_month?: number
+  last_4?: string
 }
 
 export interface Transaction {
@@ -35,6 +45,7 @@ export interface Transaction {
   tag: TransactionTag
   notes: string | null
   reward_rule_id: string | null
+  bill_id: string | null
 }
 
 export interface TransactionCreate {
@@ -81,6 +92,8 @@ export interface FixedBill {
   expected_amount: number
   is_estimated: boolean
   is_active: boolean
+  category: string | null
+  merchant: string | null
 }
 
 export interface FixedBillCreate {
@@ -90,6 +103,8 @@ export interface FixedBillCreate {
   expected_amount: number
   is_estimated?: boolean
   is_active?: boolean
+  category?: string
+  merchant?: string
 }
 
 export interface FixedBillUpdate {
@@ -99,6 +114,8 @@ export interface FixedBillUpdate {
   expected_amount?: number
   is_estimated?: boolean
   is_active?: boolean
+  category?: string
+  merchant?: string
 }
 
 export interface FixedBillPayment {
@@ -170,6 +187,16 @@ export interface AccountCredit {
   date: string
   description: string
   credit_type: string
+  category: string | null
+}
+
+export interface AccountCreditUpdate {
+  account_id?: string
+  amount?: number
+  date?: string
+  description?: string
+  credit_type?: string
+  category?: string | null
 }
 
 export interface AccountCreditCreate {
@@ -178,6 +205,7 @@ export interface AccountCreditCreate {
   date: string
   description: string
   credit_type: string
+  category?: string
 }
 
 export interface Transfer {
@@ -220,4 +248,34 @@ export interface AllocationCreate {
   state_tax: number
   sep_contribution: number
   roth_contribution: number
+}
+
+export interface PromoAprWindow {
+  id: string
+  account_id: string
+  description: string
+  promo_end_date: string
+  balance_amount: number
+  purchase_date: string
+  original_amount: number | null
+  required_monthly_payment: number | null
+}
+
+export interface PromoAprWindowCreate {
+  account_id: string
+  description: string
+  promo_end_date: string
+  balance_amount: number
+  purchase_date: string
+  original_amount?: number
+  required_monthly_payment?: number
+}
+
+export interface PromoAprWindowUpdate {
+  description?: string
+  promo_end_date?: string
+  balance_amount?: number
+  purchase_date?: string
+  original_amount?: number | null
+  required_monthly_payment?: number | null
 }

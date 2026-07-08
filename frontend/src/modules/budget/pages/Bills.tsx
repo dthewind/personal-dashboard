@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
+import Typeahead from '../components/Typeahead'
 import type { Account, FixedBill, FixedBillCreate, FixedBillPayment, FixedBillUpdate } from '../types'
 
 function MonthNav({ month, onChange }: { month: string; onChange: (m: string) => void }) {
@@ -37,11 +39,13 @@ function AmountDisplay({ amount, estimated }: { amount: number; estimated: boole
 
 function AddBillModal({
   accounts,
+  categories,
   onClose,
   onSave,
   error,
 }: {
   accounts: Account[]
+  categories: string[]
   onClose: () => void
   onSave: (data: FixedBillCreate) => void
   error?: string
@@ -51,6 +55,7 @@ function AddBillModal({
   const [dueDay, setDueDay] = useState('')
   const [amount, setAmount] = useState('')
   const [isEstimated, setIsEstimated] = useState(false)
+  const [category, setCategory] = useState('')
 
   const valid = name.trim() && accountId && dueDay && amount && parseFloat(amount) > 0
 
@@ -93,6 +98,17 @@ function AddBillModal({
               ? 'Auto-charged to this CC — marking paid increases its balance.'
               : 'Payment deducted from this account.'}
           </p>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Category</label>
+          <Typeahead
+            value={category}
+            onChange={setCategory}
+            suggestions={categories}
+            placeholder="e.g. Housing, Utilities, Subscriptions"
+            inputClassName="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -172,6 +188,7 @@ function AddBillModal({
                 due_day: parseInt(dueDay),
                 expected_amount: parseFloat(amount),
                 is_estimated: isEstimated,
+                category: category.trim() || undefined,
               })
             }
             className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-medium"
@@ -187,12 +204,14 @@ function AddBillModal({
 function EditBillForm({
   bill,
   accounts,
+  categories,
   onSave,
   onCancel,
   saving,
 }: {
   bill: FixedBill
   accounts: Account[]
+  categories: string[]
   onSave: (data: FixedBillUpdate) => void
   onCancel: () => void
   saving: boolean
@@ -202,6 +221,7 @@ function EditBillForm({
   const [dueDay, setDueDay] = useState(String(bill.due_day))
   const [amount, setAmount] = useState(String(bill.expected_amount))
   const [isEstimated, setIsEstimated] = useState(bill.is_estimated)
+  const [category, setCategory] = useState(bill.category ?? '')
 
   const valid = name.trim() && accountId && dueDay && amount && parseFloat(amount) > 0
 
@@ -216,6 +236,16 @@ function EditBillForm({
             onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Escape' && onCancel()}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-400 mb-1">Category</label>
+          <Typeahead
+            value={category}
+            onChange={setCategory}
+            suggestions={categories}
+            placeholder="e.g. Housing, Utilities"
+            inputClassName="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
           />
         </div>
         <div className="col-span-2">
@@ -292,6 +322,7 @@ function EditBillForm({
               due_day: parseInt(dueDay),
               expected_amount: parseFloat(amount),
               is_estimated: isEstimated,
+              category: category.trim() || undefined,
             })
           }
           className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
@@ -431,6 +462,11 @@ export default function Bills() {
     queryFn: () => api.accounts.list(),
   })
 
+  const { data: categories } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.categories(),
+  })
+
   const { data: currentPayments } = useQuery({
     queryKey: ['bills-payments', month],
     queryFn: () => api.bills.allPayments({ month }),
@@ -497,18 +533,24 @@ export default function Bills() {
     },
   })
 
-  const active = (bills ?? []).filter(b => b.is_active)
-  const inactive = (bills ?? []).filter(b => !b.is_active)
+  const billSort = (a: FixedBill, b: FixedBill) => {
+    if (a.due_day !== b.due_day) return a.due_day - b.due_day
+    const aAcct = (accountMap[a.account_id]?.name ?? '').toLowerCase()
+    const bAcct = (accountMap[b.account_id]?.name ?? '').toLowerCase()
+    if (aAcct !== bAcct) return aAcct < bAcct ? -1 : 1
+    return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1
+  }
+
+  const active = (bills ?? []).filter(b => b.is_active).sort(billSort)
+  const inactive = (bills ?? []).filter(b => !b.is_active).sort(billSort)
   const fixedTotal = active.filter(b => !b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
   const estimatedTotal = active.filter(b => b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
   const paidCount = active.filter(b => paidMap[b.id]).length
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <PageShell>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold text-white">Fixed Bills</h1>
           {active.length > 0 && (
             <p className="text-sm text-gray-400 mt-0.5">
               {active.length} bills ·{' '}
@@ -555,6 +597,7 @@ export default function Bills() {
                 key={bill.id}
                 bill={bill}
                 accounts={accounts ?? []}
+                categories={categories ?? []}
                 onSave={data => editMutation.mutate({ id: bill.id, data })}
                 onCancel={() => setEditingId(null)}
                 saving={editMutation.isPending}
@@ -702,6 +745,7 @@ export default function Bills() {
       {showAdd && accounts && (
         <AddBillModal
           accounts={accounts}
+          categories={categories ?? []}
           onClose={() => setShowAdd(false)}
           onSave={data => addMutation.mutate(data)}
           error={addError}
@@ -725,6 +769,6 @@ export default function Bills() {
           saving={payMutation.isPending}
         />
       )}
-    </div>
+    </PageShell>
   )
 }
