@@ -120,7 +120,7 @@ def update_account(db: Session, account_id: str, data: AccountUpdate) -> Account
     elif data.opening_balance is not None:
         account.opening_balance = data.opening_balance
 
-    for field in ("name", "apr", "credit_limit", "statement_close_day", "due_day", "is_active"):
+    for field in ("name", "apr", "credit_limit", "statement_close_day", "due_day", "autopay", "annual_fee", "annual_fee_month", "last_4", "is_active"):
         value = getattr(data, field, None)
         if value is not None:
             setattr(account, field, value)
