@@ -81,16 +81,22 @@ def upgrade() -> None:
     for t in transfers:
         out_id = str(uuid.uuid4())
         in_id = str(uuid.uuid4())
+        # Insert out first without linked_entry_id (circular FK — resolve after)
         conn.execute(sa.text("""
-            INSERT INTO ledger_entries (id, date, account_id, amount, type, linked_entry_id, notes)
-            VALUES (:id, :date, :account_id, :amount, 'transfer_out', :linked, :notes)
+            INSERT INTO ledger_entries (id, date, account_id, amount, type, notes)
+            VALUES (:id, :date, :account_id, :amount, 'transfer_out', :notes)
         """), {"id": out_id, "date": t.date, "account_id": t.from_account_id,
-               "amount": t.amount, "linked": in_id, "notes": t.description})
+               "amount": t.amount, "notes": t.description})
+        # Insert in with linked pointing to out (out exists now)
         conn.execute(sa.text("""
             INSERT INTO ledger_entries (id, date, account_id, amount, type, linked_entry_id, notes)
             VALUES (:id, :date, :account_id, :amount, 'transfer_in', :linked, :notes)
         """), {"id": in_id, "date": t.date, "account_id": t.to_account_id,
                "amount": t.amount, "linked": out_id, "notes": t.description})
+        # Now set the out→in link
+        conn.execute(sa.text(
+            "UPDATE ledger_entries SET linked_entry_id = :linked WHERE id = :id"
+        ), {"linked": in_id, "id": out_id})
 
     conn.execute(sa.text("GRANT SELECT, INSERT, UPDATE, DELETE ON ledger_entries TO dashboard"))
 
