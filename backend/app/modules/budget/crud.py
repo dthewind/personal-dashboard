@@ -6,11 +6,12 @@ from sqlalchemy import extract, func, select, update
 from sqlalchemy.orm import Session
 
 from .models import (
-    Account, AccountCredit, Allocation, FixedBill,
+    Account, AccountCredit, Allocation, CategoryRule, FixedBill,
     IncomeEntry, IncomePeriod, Merchant, PromoAprWindow, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
+    CategoryRuleUpdate,
     TransactionCreate, TransactionUpdate,
     WaterfallOut,
     FixedBillCreate, FixedBillUpdate,
@@ -296,6 +297,16 @@ def rename_category(db: Session, old_name: str, new_name: str) -> int:
     result = db.execute(
         update(Transaction).where(Transaction.category == old_name).values(category=new_name)
     )
+    # carry category rule to the new name
+    old_rule = db.get(CategoryRule, old_name)
+    if old_rule:
+        new_rule = db.get(CategoryRule, new_name)
+        if new_rule is None:
+            new_rule = CategoryRule(name=new_name)
+            db.add(new_rule)
+        new_rule.exclude_from_spend = old_rule.exclude_from_spend
+        new_rule.exclude_from_trends = old_rule.exclude_from_trends
+        db.delete(old_rule)
     db.commit()
     return result.rowcount
 
@@ -306,11 +317,41 @@ def get_category_stats(db: Session) -> list[dict]:
             Transaction.category,
             func.count(Transaction.id).label("count"),
             func.sum(Transaction.amount).label("total"),
+            func.coalesce(CategoryRule.exclude_from_spend, False).label("exclude_from_spend"),
+            func.coalesce(CategoryRule.exclude_from_trends, False).label("exclude_from_trends"),
         )
-        .group_by(Transaction.category)
+        .outerjoin(CategoryRule, Transaction.category == CategoryRule.name)
+        .group_by(
+            Transaction.category,
+            CategoryRule.exclude_from_spend,
+            CategoryRule.exclude_from_trends,
+        )
         .order_by(Transaction.category)
     ).all()
-    return [{"name": r.category, "count": r.count, "total": float(r.total)} for r in rows]
+    return [
+        {
+            "name": r.category,
+            "count": r.count,
+            "total": float(r.total),
+            "exclude_from_spend": r.exclude_from_spend,
+            "exclude_from_trends": r.exclude_from_trends,
+        }
+        for r in rows
+    ]
+
+
+def upsert_category_rule(db: Session, name: str, data: CategoryRuleUpdate) -> CategoryRule:
+    rule = db.get(CategoryRule, name)
+    if rule is None:
+        rule = CategoryRule(name=name)
+        db.add(rule)
+    if data.exclude_from_spend is not None:
+        rule.exclude_from_spend = data.exclude_from_spend
+    if data.exclude_from_trends is not None:
+        rule.exclude_from_trends = data.exclude_from_trends
+    db.commit()
+    db.refresh(rule)
+    return rule
 
 
 def get_merchant_stats(db: Session) -> list[dict]:
@@ -363,24 +404,35 @@ def get_waterfall(db: Session, pay_month: datetime.date) -> WaterfallOut:
         after_fixed,
     )
 
-    # exclude bill transactions — those are budgeted via fixed_bills_total above
-    spent = db.scalar(
-        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-            Transaction.bill_id == None,  # noqa: E711
-            extract("year", Transaction.date) == pay_month.year,
-            extract("month", Transaction.date) == pay_month.month,
-        )
-    ) or Decimal("0")
+    # categories marked exclude_from_spend are pre-budgeted (e.g. tax payments)
+    excluded_cats = db.scalars(
+        select(CategoryRule.name).where(CategoryRule.exclude_from_spend == True)  # noqa: E712
+    ).all()
+
+    # exclude bill transactions and pre-budgeted categories from spent_to_date
+    spent_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        Transaction.bill_id == None,  # noqa: E711
+        extract("year", Transaction.date) == pay_month.year,
+        extract("month", Transaction.date) == pay_month.month,
+    )
+    if excluded_cats:
+        spent_q = spent_q.where(Transaction.category.notin_(excluded_cats))
+    spent = db.scalar(spent_q) or Decimal("0")
 
     today = datetime.date.today()
     days_in_month = calendar.monthrange(pay_month.year, pay_month.month)[1]
-    if pay_month.year == today.year and pay_month.month == today.month:
+    is_current = pay_month.year == today.year and pay_month.month == today.month
+    is_past = (pay_month.year, pay_month.month) < (today.year, today.month)
+
+    if is_current:
         days_left = max(days_in_month - today.day + 1, 1)
+    elif is_past:
+        days_left = 0
     else:
         days_left = days_in_month
 
     remaining = max_spend - spent
-    dynamic_daily = (remaining / days_left).quantize(Decimal("0.01"))
+    dynamic_daily = (remaining / days_left).quantize(Decimal("0.01")) if days_left > 0 else Decimal("0")
 
     return WaterfallOut(
         pay_month=pay_month,

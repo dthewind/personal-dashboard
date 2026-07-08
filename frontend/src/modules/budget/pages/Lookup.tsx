@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api'
 
 type SortDir = 'asc' | 'desc'
 
@@ -12,7 +13,13 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   )
 }
 
-interface CategoryStat { name: string; count: number; total: number }
+interface CategoryStat {
+  name: string
+  count: number
+  total: number
+  exclude_from_spend: boolean
+  exclude_from_trends: boolean
+}
 interface MerchantStat { id: string; name: string; default_category: string | null; count: number }
 interface Transaction {
   id: string
@@ -88,6 +95,8 @@ export default function LookupPage() {
     queryFn: () => fetch('/api/budget/accounts').then(r => r.json()),
   })
 
+  const [activeTab, setActiveTab] = useState<'categories' | 'merchants'>('categories')
+
   // ── Category state ────────────────────────────────────────────────────────
   const [catFilter, setCatFilter] = useState('')
   const [catSort, setCatSort] = useState<CatSortKey>('name')
@@ -109,6 +118,15 @@ export default function LookupPage() {
       qc.invalidateQueries({ queryKey: ['categories'] })
       setRenamingCat(null)
       setExpandedCat(null)
+    },
+  })
+
+  const updateCategoryRule = useMutation({
+    mutationFn: ({ name, data }: { name: string; data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean } }) =>
+      api.categoryRules.update(name, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['category-stats'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
     },
   })
 
@@ -181,11 +199,22 @@ export default function LookupPage() {
   const thCls = 'px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wide cursor-pointer select-none hover:text-white'
   const tdCls = 'px-3 py-2 text-sm text-gray-300'
 
+  const tabCls = (active: boolean) =>
+    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+      active ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white'
+    }`
+
   return (
-    <PageShell gap="space-y-6">
+    <PageShell gap="space-y-4">
+
+      {/* ── Sub-tabs ───────────────────────────────────────────────────────── */}
+      <div className="flex gap-1">
+        <button className={tabCls(activeTab === 'categories')} onClick={() => setActiveTab('categories')}>Categories</button>
+        <button className={tabCls(activeTab === 'merchants')} onClick={() => setActiveTab('merchants')}>Merchants</button>
+      </div>
 
       {/* ── Categories ─────────────────────────────────────────────────────── */}
-      <div>
+      {activeTab === 'categories' && <div>
         <div className="flex items-center gap-4 mb-3">
           <h2 className="text-lg font-semibold text-white">Categories</h2>
           <span className="text-xs text-gray-500">{filteredCats.length} of {cats.length}</span>
@@ -209,17 +238,19 @@ export default function LookupPage() {
                 <th className={thCls + ' text-right'} onClick={() => toggleCat('total')}>
                   Total Spent <SortIcon active={catSort === 'total'} dir={catDir} />
                 </th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase tracking-wide w-20" title="Exclude from budget waterfall spend">Budget</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase tracking-wide w-20" title="Exclude from Trends charts">Trends</th>
                 <th className="px-3 py-2 w-16" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {filteredCats.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-500 text-sm">No categories yet</td></tr>
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-500 text-sm">No categories yet</td></tr>
               ) : filteredCats.map(c => (
                 renamingCat === c.name ? (
                   <>
                     <tr key={c.name} className="bg-gray-800/60">
-                      <td className={tdCls} colSpan={3}>
+                      <td className={tdCls} colSpan={5}>
                         <div className="flex items-center gap-2">
                           <span className="text-gray-400 text-xs">Rename "{c.name}" to:</span>
                           <input
@@ -258,6 +289,32 @@ export default function LookupPage() {
                       </td>
                       <td className={tdCls + ' text-right tabular-nums'}>{c.count}</td>
                       <td className={tdCls + ' text-right tabular-nums'}>${c.total.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => updateCategoryRule.mutate({ name: c.name, data: { exclude_from_spend: !c.exclude_from_spend } })}
+                          title={c.exclude_from_spend ? 'Excluded from budget — click to include' : 'Included in budget — click to exclude'}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                            c.exclude_from_spend
+                              ? 'bg-amber-900/30 border-amber-700 text-amber-400 hover:bg-amber-900/50'
+                              : 'bg-transparent border-gray-700 text-gray-600 hover:text-gray-400 hover:border-gray-500'
+                          }`}
+                        >
+                          {c.exclude_from_spend ? 'skip' : 'in'}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => updateCategoryRule.mutate({ name: c.name, data: { exclude_from_trends: !c.exclude_from_trends } })}
+                          title={c.exclude_from_trends ? 'Hidden from Trends — click to show' : 'Shown in Trends — click to hide'}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                            c.exclude_from_trends
+                              ? 'bg-gray-700 border-gray-600 text-gray-400 hover:bg-gray-600'
+                              : 'bg-transparent border-gray-700 text-gray-600 hover:text-gray-400 hover:border-gray-500'
+                          }`}
+                        >
+                          {c.exclude_from_trends ? 'hide' : 'in'}
+                        </button>
+                      </td>
                       <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => { setRenamingCat(c.name); setRenameValue(c.name) }}
@@ -278,10 +335,10 @@ export default function LookupPage() {
           </table>
         </div>
         <p className="mt-1.5 text-xs text-gray-600">Click a row to see its transactions. Renaming updates all transactions with that category. Typing an existing category name merges them.</p>
-      </div>
+      </div>}
 
       {/* ── Merchants ──────────────────────────────────────────────────────── */}
-      <div>
+      {activeTab === 'merchants' && <div>
         <div className="flex items-center gap-4 mb-3">
           <h2 className="text-lg font-semibold text-white">Merchants</h2>
           <span className="text-xs text-gray-500">{filteredMerch.length} of {merch.length}</span>
@@ -427,7 +484,7 @@ export default function LookupPage() {
           </table>
         </div>
         <p className="mt-1.5 text-xs text-gray-600">Click a row to see its transactions. Editing a merchant name also updates the name on all linked transactions. Deleting only removes the merchant record.</p>
-      </div>
+      </div>}
 
     </PageShell>
   )

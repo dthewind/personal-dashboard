@@ -138,6 +138,13 @@ class WaterfallOut(BaseModel):
     days_left: int
 
 
+# ── Category Rules ────────────────────────────────────────────────────────────
+
+class CategoryRuleUpdate(BaseModel):
+    exclude_from_spend: bool | None = None
+    exclude_from_trends: bool | None = None
+
+
 # ── Fixed Bills ────────────────────────────────────────────────────────────────
 
 class FixedBillCreate(BaseModel):

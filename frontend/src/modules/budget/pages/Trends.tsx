@@ -45,9 +45,18 @@ export default function Trends() {
     queryFn: () => api.accounts.list(),
   })
 
+  const { data: catStats } = useQuery({
+    queryKey: ['category-stats'],
+    queryFn: () => fetch('/api/budget/category-stats').then(r => r.json()) as Promise<{ name: string; exclude_from_trends: boolean }[]>,
+  })
+
+  const hiddenCats = new Set((catStats ?? []).filter(c => c.exclude_from_trends).map(c => c.name))
+
+  const visibleTxns = (transactions ?? []).filter(t => !hiddenCats.has(t.category))
+
   // Aggregate by category
   const byCat: Record<string, number> = {}
-  for (const t of transactions ?? []) {
+  for (const t of visibleTxns) {
     byCat[t.category] = (byCat[t.category] ?? 0) + t.amount
   }
   const categoryData = Object.entries(byCat)
@@ -57,7 +66,7 @@ export default function Trends() {
   // Aggregate by account
   const accountMap = Object.fromEntries((accounts ?? []).map(a => [a.id, a.name]))
   const byAcc: Record<string, number> = {}
-  for (const t of transactions ?? []) {
+  for (const t of visibleTxns) {
     const name = accountMap[t.account_id] ?? t.account_id
     byAcc[name] = (byAcc[name] ?? 0) + t.amount
   }
@@ -65,8 +74,8 @@ export default function Trends() {
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount)
 
-  const total = (transactions ?? []).reduce((s, t) => s + t.amount, 0)
-  const count = transactions?.length ?? 0
+  const total = visibleTxns.reduce((s, t) => s + t.amount, 0)
+  const count = visibleTxns.length
   const avgPerTxn = count > 0 ? total / count : 0
 
   return (

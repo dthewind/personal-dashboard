@@ -1169,17 +1169,24 @@ export default function Dashboard() {
               <div className="text-xs text-gray-500 mt-1">fixed / day</div>
             </div>
             <div className="w-px bg-gray-800" />
-            <div className="text-center">
-              <div
-                className={`text-2xl font-bold font-mono ${
-                  w.daily_allowance_dynamic < 0 ? 'text-red-400' : 'text-white'
-                }`}
-              >
-                {fmt(w.daily_allowance_dynamic)}
+            {w.days_left > 0 ? (
+              <div className="text-center">
+                <div
+                  className={`text-2xl font-bold font-mono ${
+                    w.daily_allowance_dynamic < 0 ? 'text-red-400' : 'text-white'
+                  }`}
+                >
+                  {fmt(w.daily_allowance_dynamic)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">dynamic / day</div>
+                <div className="text-xs text-gray-600">{w.days_left}d left</div>
               </div>
-              <div className="text-xs text-gray-500 mt-1">dynamic / day</div>
-              <div className="text-xs text-gray-600">{w.days_left}d left</div>
-            </div>
+            ) : (
+              <div className="text-center">
+                <div className="text-2xl font-bold font-mono text-gray-600">—</div>
+                <div className="text-xs text-gray-600 mt-1">month closed</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

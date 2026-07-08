@@ -219,3 +219,11 @@ class SavingsGoal(Base):
     target_date: Mapped[date | None] = mapped_column(Date)
 
     account: Mapped["Account | None"] = relationship(back_populates="savings_goals")
+
+
+class CategoryRule(Base):
+    __tablename__ = "category_rules"
+
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    exclude_from_spend: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    exclude_from_trends: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

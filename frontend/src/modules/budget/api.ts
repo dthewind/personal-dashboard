@@ -60,6 +60,14 @@ export const api = {
 
   categories: () => req<string[]>('/categories'),
 
+  categoryRules: {
+    update: (name: string, data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean }) =>
+      req<{ name: string; exclude_from_spend: boolean; exclude_from_trends: boolean }>(
+        `/categories/${encodeURIComponent(name)}/rules`,
+        { method: 'PATCH', body: JSON.stringify(data) },
+      ),
+  },
+
   merchants: (q: string) =>
     req<Merchant[]>(`/merchants?q=${encodeURIComponent(q)}`),
 

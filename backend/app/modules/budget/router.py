@@ -9,6 +9,7 @@ from .schemas import (
     AccountCreate, AccountOut, AccountUpdate,
     AccountCreditCreate, AccountCreditOut, AccountCreditUpdate,
     AllocationCreate, AllocationOut,
+    CategoryRuleUpdate,
     FixedBillCreate, FixedBillOut, FixedBillPaymentCreate, FixedBillPaymentOut, FixedBillUpdate,
     IncomePeriodCreate, IncomePeriodOut, IncomePeriodUpdate,
     IncomeEntryCreate, IncomeEntryOut, IncomeEntryUpdate,
@@ -134,6 +135,11 @@ def rename_category(body: dict, db: Session = Depends(get_db)):
         raise HTTPException(400, "old_name and new_name required")
     count = crud.rename_category(db, old, new)
     return {"updated": count}
+
+
+@router.patch("/categories/{name}/rules")
+def upsert_category_rule(name: str, data: CategoryRuleUpdate, db: Session = Depends(get_db)):
+    return crud.upsert_category_rule(db, name, data)
 
 
 @router.get("/merchant-stats")
