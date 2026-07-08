@@ -10,6 +10,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import UUID
 
 revision: str = "b7f3e9a2c1d8"
 down_revision: Union[str, None] = "3c8d2a1f9b05"
@@ -20,20 +21,20 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         "ledger_entries",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", UUID(as_uuid=False), primary_key=True),
         sa.Column("date", sa.Date, nullable=False),
-        sa.Column("account_id", sa.String(36), sa.ForeignKey("accounts.id"), nullable=False),
+        sa.Column("account_id", UUID(as_uuid=False), sa.ForeignKey("accounts.id"), nullable=False),
         sa.Column("amount", sa.Numeric(12, 2), nullable=False),
         sa.Column("type", sa.String(20), nullable=False),
         sa.Column("merchant", sa.String(200)),
-        sa.Column("merchant_id", sa.String(36), sa.ForeignKey("merchants.id")),
+        sa.Column("merchant_id", UUID(as_uuid=False), sa.ForeignKey("merchants.id")),
         sa.Column("category", sa.String(100)),
         sa.Column("tag", sa.String(10)),
         sa.Column("subtype", sa.String(30)),
-        sa.Column("period_id", sa.String(36), sa.ForeignKey("income_periods.id")),
-        sa.Column("bill_id", sa.String(36), sa.ForeignKey("fixed_bills.id")),
-        sa.Column("reward_rule_id", sa.String(36), sa.ForeignKey("reward_rules.id")),
-        sa.Column("linked_entry_id", sa.String(36), sa.ForeignKey("ledger_entries.id")),
+        sa.Column("period_id", UUID(as_uuid=False), sa.ForeignKey("income_periods.id")),
+        sa.Column("bill_id", UUID(as_uuid=False), sa.ForeignKey("fixed_bills.id")),
+        sa.Column("reward_rule_id", UUID(as_uuid=False), sa.ForeignKey("reward_rules.id")),
+        sa.Column("linked_entry_id", UUID(as_uuid=False), sa.ForeignKey("ledger_entries.id")),
         sa.Column("notes", sa.Text),
     )
     op.create_index("ix_ledger_entries_account_id", "ledger_entries", ["account_id"])
