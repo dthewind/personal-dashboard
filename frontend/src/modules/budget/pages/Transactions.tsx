@@ -938,7 +938,7 @@ export default function Transactions() {
           <div className="p-8 text-center text-gray-500 text-sm">No entries for this period</div>
         )}
 
-        {ledger.map(({ kind, item, date }, i) => {
+        {ledger.map(({ kind, item }, i) => {
           const isLast = i === ledger.length - 1
           const border = !isLast ? 'border-b border-gray-800/60' : ''
 
