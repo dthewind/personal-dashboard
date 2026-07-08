@@ -5,7 +5,7 @@ import { api } from '../api'
 import { fmt, todayStr } from '../utils'
 import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
-import type { Account, Transfer, TransferCreate, TransferUpdate } from '../types'
+import type { Account, LedgerEntry, TransferPairCreate } from '../types'
 
 const inputCls = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500'
 
@@ -18,8 +18,8 @@ function TransferForm({
   submitLabel,
 }: {
   accounts: Account[]
-  initial?: Transfer
-  onSave: (data: TransferCreate) => void
+  initial?: LedgerEntry  // type=transfer_out
+  onSave: (data: TransferPairCreate) => void
   onCancel: () => void
   saving: boolean
   submitLabel: string
@@ -27,11 +27,11 @@ function TransferForm({
   const sorted = [...accounts].sort((a, b) => a.name.localeCompare(b.name))
   const firstChecking = sorted.find(a => a.type === 'checking')
 
-  const [fromId, setFromId] = useState(initial?.from_account_id ?? firstChecking?.id ?? sorted[0]?.id ?? '')
-  const [toId, setToId] = useState(initial?.to_account_id ?? '')
+  const [fromId, setFromId] = useState(initial?.account_id ?? firstChecking?.id ?? sorted[0]?.id ?? '')
+  const [toId, setToId] = useState(initial?.counterpart_account_id ?? '')
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
   const [date, setDate] = useState(initial?.date ?? todayStr())
-  const [description, setDescription] = useState(initial?.description ?? '')
+  const [description, setDescription] = useState(initial?.notes ?? '')
 
   const valid = fromId && toId && fromId !== toId && amount && parseFloat(amount) > 0
 
@@ -139,39 +139,56 @@ export default function TransfersPage() {
     queryFn: () => api.accounts.list(),
   })
 
-  const { data: transfers = [], isLoading } = useQuery({
-    queryKey: ['transfers', range.start, range.end, filterFrom, filterTo],
-    queryFn: () => api.transfers.list({
+  // Only fetch transfer_out entries — each transfer appears once
+  // Filter by from-account via account_id; filter by to-account client-side via counterpart_account_id
+  const { data: rawEntries = [], isLoading } = useQuery({
+    queryKey: ['ledger', 'transfers', range.start, range.end, filterFrom],
+    queryFn: () => api.ledger.list({
       start: range.start,
       end: range.end,
-      from_account_id: filterFrom || undefined,
-      to_account_id: filterTo || undefined,
+      type: 'transfer_out',
+      account_id: filterFrom || undefined,
     }),
     enabled: !!(range.start && range.end),
   })
 
+  const transfers = filterTo
+    ? rawEntries.filter(e => e.counterpart_account_id === filterTo)
+    : rawEntries
+
   const createMutation = useMutation({
-    mutationFn: (data: TransferCreate) => api.transfers.create(data),
+    mutationFn: (data: TransferPairCreate) => api.ledger.createTransfer(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
       setShowAdd(false)
     },
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: TransferUpdate }) => api.transfers.update(id, data),
+    mutationFn: async ({ entry, data }: { entry: LedgerEntry; data: TransferPairCreate }) => {
+      await api.ledger.update(entry.id, {
+        account_id: data.from_account_id,
+        amount: data.amount,
+        date: data.date,
+        notes: data.description || 'Transfer',
+      })
+      // Update linked (transfer_in) entry's account if to-account changed
+      if (entry.linked_entry_id) {
+        await api.ledger.update(entry.linked_entry_id, { account_id: data.to_account_id })
+      }
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
       setEditingId(null)
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.transfers.delete(id),
+    mutationFn: (id: string) => api.ledger.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['transfers'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
       setConfirmDeleteId(null)
     },
@@ -259,8 +276,8 @@ export default function TransfersPage() {
       {transfers.length > 0 && (
         <div className="space-y-2">
           {transfers.map(t => {
-            const from = accountMap[t.from_account_id]
-            const to = accountMap[t.to_account_id]
+            const from = accountMap[t.account_id]
+            const to = accountMap[t.counterpart_account_id ?? '']
             const isCc = to?.type === 'credit_card'
 
             if (editingId === t.id) {
@@ -269,7 +286,7 @@ export default function TransfersPage() {
                   key={t.id}
                   accounts={accounts}
                   initial={t}
-                  onSave={data => updateMutation.mutate({ id: t.id, data })}
+                  onSave={data => updateMutation.mutate({ entry: t, data })}
                   onCancel={() => setEditingId(null)}
                   saving={updateMutation.isPending}
                   submitLabel="Save Changes"
@@ -287,7 +304,7 @@ export default function TransfersPage() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-white">{t.description}</div>
+                  <div className="text-sm text-white">{t.notes || 'Transfer'}</div>
                   <div className="text-xs text-gray-500 mt-0.5">
                     {from?.name ?? '—'}
                     <span className="mx-1 text-gray-700">→</span>

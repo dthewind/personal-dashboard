@@ -7,68 +7,51 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Account, AccountCredit, Allocation, CategoryRule, FixedBill,
-    IncomeEntry, IncomePeriod, Merchant, PromoAprWindow, Transaction, Transfer,
+    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
+    AllocationCreate,
     CategoryRuleUpdate,
-    TransactionCreate, TransactionUpdate,
-    WaterfallOut,
     FixedBillCreate, FixedBillUpdate,
     FixedBillPaymentCreate,
     IncomePeriodCreate, IncomePeriodUpdate,
-    IncomeEntryCreate, IncomeEntryUpdate,
-    AllocationCreate,
-    AccountCreditCreate, AccountCreditUpdate,
+    LedgerEntryCreate, LedgerEntryUpdate, LedgerBulkCreate, TransferPairCreate,
     PromoAprWindowCreate, PromoAprWindowUpdate,
-    TransferCreate, TransferUpdate,
+    WaterfallOut,
 )
 
 
 # ── Balance computation ────────────────────────────────────────────────────────
 
 def recompute_balance(db: Session, account_id: str) -> None:
-    """Recalculate current_balance from all ledger sources. Call before db.commit()."""
     acct = db.get(Account, account_id)
     if not acct:
         return
 
     opening = acct.opening_balance
 
-    # all spending transactions charged to this account (includes bill transactions)
-    spent = db.scalar(
-        select(func.coalesce(func.sum(Transaction.amount), 0))
-        .where(Transaction.account_id == account_id)
-    ) or Decimal("0")
-
-    # money transferred out of this account
-    xfer_out = db.scalar(
-        select(func.coalesce(func.sum(Transfer.amount), 0))
-        .where(Transfer.from_account_id == account_id)
-    ) or Decimal("0")
-
-    # money transferred into this account
-    xfer_in = db.scalar(
-        select(func.coalesce(func.sum(Transfer.amount), 0))
-        .where(Transfer.to_account_id == account_id)
-    ) or Decimal("0")
-
-    # income deposited into this account
-    income = db.scalar(
-        select(func.coalesce(func.sum(IncomeEntry.amount), 0))
-        .where(IncomeEntry.to_account_id == account_id)
-    ) or Decimal("0")
-
-    # statement credits / cashback applied to this account
-    credits = db.scalar(
-        select(func.coalesce(func.sum(AccountCredit.amount), 0))
-        .where(AccountCredit.account_id == account_id)
-    ) or Decimal("0")
-
     if acct.type == "credit_card":
-        acct.current_balance = opening + spent - xfer_in - credits
+        # expenses increase balance (more owed); payments and credits decrease it
+        pos = db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .where(LedgerEntry.account_id == account_id, LedgerEntry.type == "expense")
+        ) or Decimal("0")
+        neg = db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .where(LedgerEntry.account_id == account_id, LedgerEntry.type.in_(["transfer_in", "credit"]))
+        ) or Decimal("0")
     else:
-        acct.current_balance = opening + income - spent - xfer_out + xfer_in + credits
+        pos = db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .where(LedgerEntry.account_id == account_id, LedgerEntry.type.in_(["income", "transfer_in", "credit"]))
+        ) or Decimal("0")
+        neg = db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .where(LedgerEntry.account_id == account_id, LedgerEntry.type.in_(["expense", "transfer_out"]))
+        ) or Decimal("0")
+
+    acct.current_balance = opening + pos - neg
 
 
 def recompute_all_balances(db: Session) -> None:
@@ -96,7 +79,7 @@ def create_account(db: Session, data: AccountCreate) -> Account:
         type=data.type,
         credit_limit=data.credit_limit,
         opening_balance=data.opening_balance,
-        current_balance=data.opening_balance,  # starts equal to opening; no transactions yet
+        current_balance=data.opening_balance,
         apr=data.apr,
         statement_close_day=data.statement_close_day,
         due_day=data.due_day,
@@ -113,7 +96,6 @@ def update_account(db: Session, account_id: str, data: AccountUpdate) -> Account
     if not account:
         return None
 
-    # reconcile_to: back-calculate opening_balance to produce the desired current_balance
     if data.reconcile_to is not None:
         delta = data.reconcile_to - account.current_balance
         account.opening_balance = account.opening_balance + delta
@@ -132,130 +114,223 @@ def update_account(db: Session, account_id: str, data: AccountUpdate) -> Account
     return account
 
 
-# ── Transactions ───────────────────────────────────────────────────────────────
+# ── Ledger ─────────────────────────────────────────────────────────────────────
 
-def get_transactions(
+def _with_counterparts(db: Session, entries: list[LedgerEntry]) -> list[dict]:
+    """Add counterpart_account_id to transfer entries."""
+    linked_ids = [e.linked_entry_id for e in entries if e.linked_entry_id]
+    counterpart_map: dict[str, str] = {}
+    if linked_ids:
+        rows = db.execute(
+            select(LedgerEntry.id, LedgerEntry.account_id)
+            .where(LedgerEntry.id.in_(linked_ids))
+        ).all()
+        counterpart_map = {r.id: r.account_id for r in rows}
+
+    result = []
+    for e in entries:
+        result.append({
+            "id": e.id,
+            "date": e.date,
+            "account_id": e.account_id,
+            "amount": e.amount,
+            "type": e.type,
+            "merchant": e.merchant,
+            "merchant_id": e.merchant_id,
+            "category": e.category,
+            "tag": e.tag,
+            "subtype": e.subtype,
+            "period_id": e.period_id,
+            "bill_id": e.bill_id,
+            "reward_rule_id": e.reward_rule_id,
+            "linked_entry_id": e.linked_entry_id,
+            "notes": e.notes,
+            "counterpart_account_id": counterpart_map.get(e.linked_entry_id) if e.linked_entry_id else None,
+        })
+    return result
+
+
+def get_ledger(
     db: Session,
     start: datetime.date | None = None,
     end: datetime.date | None = None,
     account_id: str | None = None,
+    entry_type: str | None = None,
     category: str | None = None,
     merchant: str | None = None,
-    limit: int = 500,
+    limit: int = 1000,
     offset: int = 0,
-) -> list[Transaction]:
-    q = select(Transaction).order_by(Transaction.date.desc())
+) -> list[dict]:
+    q = select(LedgerEntry).order_by(LedgerEntry.date.desc(), LedgerEntry.id.desc())
     if start:
-        q = q.where(Transaction.date >= start)
+        q = q.where(LedgerEntry.date >= start)
     if end:
-        q = q.where(Transaction.date <= end)
+        q = q.where(LedgerEntry.date <= end)
     if account_id:
-        q = q.where(Transaction.account_id == account_id)
+        q = q.where(LedgerEntry.account_id == account_id)
+    if entry_type:
+        q = q.where(LedgerEntry.type == entry_type)
     if category:
-        q = q.where(Transaction.category == category)
+        q = q.where(LedgerEntry.category == category)
     if merchant:
-        q = q.where(Transaction.merchant == merchant)
-    return list(db.scalars(q.limit(limit).offset(offset)).all())
+        q = q.where(LedgerEntry.merchant == merchant)
+    entries = list(db.scalars(q.limit(limit).offset(offset)).all())
+    return _with_counterparts(db, entries)
 
 
-def get_transaction(db: Session, transaction_id: str) -> Transaction | None:
-    return db.get(Transaction, transaction_id)
+def create_ledger_entry(db: Session, data: LedgerEntryCreate) -> dict:
+    entry = LedgerEntry(**data.model_dump())
+    db.add(entry)
 
-
-def create_transaction(
-    db: Session, data: TransactionCreate, update_balance: bool = True
-) -> Transaction:
-    txn = Transaction(**data.model_dump())
-    db.add(txn)
-
-    merchant = db.scalars(
-        select(Merchant).where(Merchant.name == data.merchant)
-    ).first()
-    if merchant:
-        merchant.default_category = data.category
-        txn.merchant_id = merchant.id
-    else:
-        merchant = Merchant(name=data.merchant, default_category=data.category)
-        db.add(merchant)
-        db.flush()
-        txn.merchant_id = merchant.id
+    if data.type == "expense" and data.merchant:
+        _sync_merchant(db, entry, data.merchant, data.category)
 
     db.flush()
-    if update_balance:
-        recompute_balance(db, data.account_id)
+    recompute_balance(db, data.account_id)
     db.commit()
-    db.refresh(txn)
-    return txn
+    db.refresh(entry)
+    return _with_counterparts(db, [entry])[0]
 
 
-def update_transaction(
-    db: Session, transaction_id: str, data: TransactionUpdate
-) -> Transaction | None:
-    txn = db.get(Transaction, transaction_id)
-    if not txn:
+def create_transfer_pair(db: Session, data: TransferPairCreate) -> list[dict]:
+    out_id = _uuid()
+    in_id = _uuid()
+    desc = data.description or "Transfer"
+
+    out_entry = LedgerEntry(
+        id=out_id,
+        date=data.date,
+        account_id=data.from_account_id,
+        amount=data.amount,
+        type="transfer_out",
+        notes=desc,
+        linked_entry_id=in_id,
+    )
+    in_entry = LedgerEntry(
+        id=in_id,
+        date=data.date,
+        account_id=data.to_account_id,
+        amount=data.amount,
+        type="transfer_in",
+        notes=desc,
+        linked_entry_id=out_id,
+    )
+    db.add(out_entry)
+    db.add(in_entry)
+    db.flush()
+    recompute_balance(db, data.from_account_id)
+    recompute_balance(db, data.to_account_id)
+    db.commit()
+    return _with_counterparts(db, [out_entry, in_entry])
+
+
+def update_ledger_entry(db: Session, entry_id: str, data: LedgerEntryUpdate) -> dict | None:
+    entry = db.get(LedgerEntry, entry_id)
+    if not entry:
         return None
 
-    old_account_id = txn.account_id
+    old_account_id = entry.account_id
     updates = data.model_dump(exclude_none=True)
-    for field, value in updates.items():
-        setattr(txn, field, value)
 
-    # keep merchant.default_category in sync when category or merchant changes
-    if 'category' in updates or 'merchant' in updates:
-        merchant = db.scalars(select(Merchant).where(Merchant.name == txn.merchant)).first()
-        if merchant:
-            merchant.default_category = txn.category
+    for field, value in updates.items():
+        setattr(entry, field, value)
+
+    if entry.type == "expense" and ("merchant" in updates or "category" in updates):
+        _sync_merchant(db, entry, entry.merchant, entry.category)
+
+    # sync the linked transfer entry (amount, date, notes)
+    if entry.linked_entry_id and entry.type in ("transfer_out", "transfer_in"):
+        linked = db.get(LedgerEntry, entry.linked_entry_id)
+        if linked:
+            if "amount" in updates:
+                linked.amount = entry.amount
+            if "date" in updates:
+                linked.date = entry.date
+            if "notes" in updates:
+                linked.notes = entry.notes
 
     db.flush()
-    affected = {old_account_id, txn.account_id}
+    affected = {old_account_id, entry.account_id}
+    if entry.linked_entry_id:
+        linked = db.get(LedgerEntry, entry.linked_entry_id)
+        if linked:
+            affected.add(linked.account_id)
     for aid in affected:
         recompute_balance(db, aid)
     db.commit()
-    db.refresh(txn)
-    return txn
+    db.refresh(entry)
+    return _with_counterparts(db, [entry])[0]
 
 
-def bulk_create_transactions(db: Session, items: list[TransactionCreate]) -> int:
-    affected_accounts: set[str] = set()
-    for data in items:
-        txn = Transaction(**data.model_dump())
-        db.add(txn)
-        merchant = db.scalars(
-            select(Merchant).where(Merchant.name == data.merchant)
-        ).first()
-        if merchant:
-            merchant.default_category = data.category
-            txn.merchant_id = merchant.id
-        else:
-            merchant = Merchant(name=data.merchant, default_category=data.category)
-            db.add(merchant)
-            db.flush()
-            txn.merchant_id = merchant.id
-        affected_accounts.add(data.account_id)
+def delete_ledger_entry(db: Session, entry_id: str) -> bool:
+    entry = db.get(LedgerEntry, entry_id)
+    if not entry:
+        return False
+
+    affected = {entry.account_id}
+    linked_id = entry.linked_entry_id
+
+    db.delete(entry)
     db.flush()
-    for aid in affected_accounts:
+
+    if linked_id:
+        linked = db.get(LedgerEntry, linked_id)
+        if linked:
+            affected.add(linked.account_id)
+            db.delete(linked)
+            db.flush()
+
+    for aid in affected:
         recompute_balance(db, aid)
     db.commit()
-    return len(items)
-
-
-def delete_transaction(db: Session, transaction_id: str) -> bool:
-    txn = db.get(Transaction, transaction_id)
-    if not txn:
-        return False
-    account_id = txn.account_id
-    db.delete(txn)
-    db.flush()
-    recompute_balance(db, account_id)
-    db.commit()
     return True
+
+
+def bulk_create_ledger_entries(db: Session, entries: list[LedgerEntryCreate]) -> int:
+    affected: set[str] = set()
+    for data in entries:
+        entry = LedgerEntry(**data.model_dump())
+        db.add(entry)
+        if data.type == "expense" and data.merchant:
+            _sync_merchant(db, entry, data.merchant, data.category)
+        affected.add(data.account_id)
+    db.flush()
+    for aid in affected:
+        recompute_balance(db, aid)
+    db.commit()
+    return len(entries)
+
+
+def _uuid() -> str:
+    import uuid
+    return str(uuid.uuid4())
+
+
+# ── Merchant helpers ───────────────────────────────────────────────────────────
+
+def _sync_merchant(db: Session, entry: LedgerEntry, merchant_name: str | None, category: str | None) -> None:
+    if not merchant_name:
+        return
+    merchant = db.scalars(select(Merchant).where(Merchant.name == merchant_name)).first()
+    if merchant:
+        if category:
+            merchant.default_category = category
+        entry.merchant_id = merchant.id
+    else:
+        merchant = Merchant(name=merchant_name, default_category=category)
+        db.add(merchant)
+        db.flush()
+        entry.merchant_id = merchant.id
 
 
 # ── Type-ahead ─────────────────────────────────────────────────────────────────
 
 def get_categories(db: Session) -> list[str]:
     rows = db.scalars(
-        select(Transaction.category).distinct().order_by(Transaction.category)
+        select(LedgerEntry.category)
+        .where(LedgerEntry.type == "expense", LedgerEntry.category.isnot(None))
+        .distinct()
+        .order_by(LedgerEntry.category)
     ).all()
     return list(rows)
 
@@ -272,8 +347,7 @@ def update_merchant(db: Session, merchant_id: str, name: str | None, default_cat
     if not merchant:
         return None
     if name is not None:
-        # keep transaction.merchant strings in sync
-        db.execute(update(Transaction).where(Transaction.merchant == merchant.name).values(merchant=name))
+        db.execute(update(LedgerEntry).where(LedgerEntry.merchant == merchant.name).values(merchant=name))
         merchant.name = name
     if default_category is not None:
         merchant.default_category = default_category or None
@@ -286,8 +360,7 @@ def delete_merchant(db: Session, merchant_id: str) -> bool:
     merchant = db.get(Merchant, merchant_id)
     if not merchant:
         return False
-    # detach transactions from this merchant record (don't delete the transactions)
-    db.execute(update(Transaction).where(Transaction.merchant_id == merchant_id).values(merchant_id=None))
+    db.execute(update(LedgerEntry).where(LedgerEntry.merchant_id == merchant_id).values(merchant_id=None))
     db.delete(merchant)
     db.commit()
     return True
@@ -295,9 +368,8 @@ def delete_merchant(db: Session, merchant_id: str) -> bool:
 
 def rename_category(db: Session, old_name: str, new_name: str) -> int:
     result = db.execute(
-        update(Transaction).where(Transaction.category == old_name).values(category=new_name)
+        update(LedgerEntry).where(LedgerEntry.category == old_name).values(category=new_name)
     )
-    # carry category rule to the new name
     old_rule = db.get(CategoryRule, old_name)
     if old_rule:
         new_rule = db.get(CategoryRule, new_name)
@@ -314,19 +386,20 @@ def rename_category(db: Session, old_name: str, new_name: str) -> int:
 def get_category_stats(db: Session) -> list[dict]:
     rows = db.execute(
         select(
-            Transaction.category,
-            func.count(Transaction.id).label("count"),
-            func.sum(Transaction.amount).label("total"),
+            LedgerEntry.category,
+            func.count(LedgerEntry.id).label("count"),
+            func.sum(LedgerEntry.amount).label("total"),
             func.coalesce(CategoryRule.exclude_from_spend, False).label("exclude_from_spend"),
             func.coalesce(CategoryRule.exclude_from_trends, False).label("exclude_from_trends"),
         )
-        .outerjoin(CategoryRule, Transaction.category == CategoryRule.name)
+        .where(LedgerEntry.type == "expense", LedgerEntry.category.isnot(None))
+        .outerjoin(CategoryRule, LedgerEntry.category == CategoryRule.name)
         .group_by(
-            Transaction.category,
+            LedgerEntry.category,
             CategoryRule.exclude_from_spend,
             CategoryRule.exclude_from_trends,
         )
-        .order_by(Transaction.category)
+        .order_by(LedgerEntry.category)
     ).all()
     return [
         {
@@ -360,9 +433,9 @@ def get_merchant_stats(db: Session) -> list[dict]:
             Merchant.id,
             Merchant.name,
             Merchant.default_category,
-            func.count(Transaction.id).label("count"),
+            func.count(LedgerEntry.id).label("count"),
         )
-        .outerjoin(Transaction, Transaction.merchant == Merchant.name)
+        .outerjoin(LedgerEntry, (LedgerEntry.merchant == Merchant.name) & (LedgerEntry.type == "expense"))
         .group_by(Merchant.id, Merchant.name, Merchant.default_category)
         .order_by(Merchant.name)
     ).all()
@@ -375,9 +448,10 @@ def get_waterfall(db: Session, pay_month: datetime.date) -> WaterfallOut:
     DAILY_FIXED = Decimal("75")
 
     gross = db.scalar(
-        select(func.coalesce(func.sum(IncomeEntry.amount), 0)).where(
-            extract("year", IncomeEntry.received_date) == pay_month.year,
-            extract("month", IncomeEntry.received_date) == pay_month.month,
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+            LedgerEntry.type == "income",
+            extract("year", LedgerEntry.date) == pay_month.year,
+            extract("month", LedgerEntry.date) == pay_month.month,
         )
     ) or Decimal("0")
 
@@ -404,19 +478,18 @@ def get_waterfall(db: Session, pay_month: datetime.date) -> WaterfallOut:
         after_fixed,
     )
 
-    # categories marked exclude_from_spend are pre-budgeted (e.g. tax payments)
     excluded_cats = db.scalars(
         select(CategoryRule.name).where(CategoryRule.exclude_from_spend == True)  # noqa: E712
     ).all()
 
-    # exclude bill transactions and pre-budgeted categories from spent_to_date
-    spent_q = select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-        Transaction.bill_id == None,  # noqa: E711
-        extract("year", Transaction.date) == pay_month.year,
-        extract("month", Transaction.date) == pay_month.month,
+    spent_q = select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+        LedgerEntry.type == "expense",
+        LedgerEntry.bill_id.is_(None),
+        extract("year", LedgerEntry.date) == pay_month.year,
+        extract("month", LedgerEntry.date) == pay_month.month,
     )
     if excluded_cats:
-        spent_q = spent_q.where(Transaction.category.notin_(excluded_cats))
+        spent_q = spent_q.where(LedgerEntry.category.notin_(excluded_cats))
     spent = db.scalar(spent_q) or Decimal("0")
 
     today = datetime.date.today()
@@ -483,33 +556,31 @@ def update_bill(db: Session, bill_id: str, data: FixedBillUpdate) -> FixedBill |
     return bill
 
 
-def _txn_to_payment_dict(txn: Transaction, bill_name: str) -> dict:
+def _entry_to_payment_dict(entry: LedgerEntry, bill_name: str) -> dict:
     return {
-        "id": txn.id,
-        "bill_id": txn.bill_id,
-        "paid_date": txn.date,
-        "paid_amount": txn.amount,
-        "period_month": txn.date.replace(day=1),
+        "id": entry.id,
+        "bill_id": entry.bill_id,
+        "paid_date": entry.date,
+        "paid_amount": entry.amount,
+        "period_month": entry.date.replace(day=1),
         "bill_name": bill_name,
-        "account_id": txn.account_id,
+        "account_id": entry.account_id,
     }
 
 
-def get_bill_payments(
-    db: Session, bill_id: str, month: datetime.date | None = None
-) -> list[dict]:
+def get_bill_payments(db: Session, bill_id: str, month: datetime.date | None = None) -> list[dict]:
     q = (
-        select(Transaction, FixedBill.name.label("bill_name"))
-        .join(FixedBill, Transaction.bill_id == FixedBill.id)
-        .where(Transaction.bill_id == bill_id)
-        .order_by(Transaction.date.desc())
+        select(LedgerEntry, FixedBill.name.label("bill_name"))
+        .join(FixedBill, LedgerEntry.bill_id == FixedBill.id)
+        .where(LedgerEntry.bill_id == bill_id, LedgerEntry.type == "expense")
+        .order_by(LedgerEntry.date.desc())
     )
     if month:
         q = q.where(
-            extract("year", Transaction.date) == month.year,
-            extract("month", Transaction.date) == month.month,
+            extract("year", LedgerEntry.date) == month.year,
+            extract("month", LedgerEntry.date) == month.month,
         )
-    return [_txn_to_payment_dict(txn, bill_name) for txn, bill_name in db.execute(q).all()]
+    return [_entry_to_payment_dict(entry, bill_name) for entry, bill_name in db.execute(q).all()]
 
 
 def get_all_bill_payments(
@@ -520,28 +591,26 @@ def get_all_bill_payments(
     end: datetime.date | None = None,
 ) -> list[dict]:
     q = (
-        select(Transaction, FixedBill.name.label("bill_name"))
-        .join(FixedBill, Transaction.bill_id == FixedBill.id)
-        .where(Transaction.bill_id != None)  # noqa: E711
-        .order_by(Transaction.date.desc())
+        select(LedgerEntry, FixedBill.name.label("bill_name"))
+        .join(FixedBill, LedgerEntry.bill_id == FixedBill.id)
+        .where(LedgerEntry.type == "expense", LedgerEntry.bill_id.isnot(None))
+        .order_by(LedgerEntry.date.desc())
     )
     if month:
         q = q.where(
-            extract("year", Transaction.date) == month.year,
-            extract("month", Transaction.date) == month.month,
+            extract("year", LedgerEntry.date) == month.year,
+            extract("month", LedgerEntry.date) == month.month,
         )
     if account_id:
-        q = q.where(Transaction.account_id == account_id)
+        q = q.where(LedgerEntry.account_id == account_id)
     if start:
-        q = q.where(Transaction.date >= start)
+        q = q.where(LedgerEntry.date >= start)
     if end:
-        q = q.where(Transaction.date <= end)
-    return [_txn_to_payment_dict(txn, bill_name) for txn, bill_name in db.execute(q).all()]
+        q = q.where(LedgerEntry.date <= end)
+    return [_entry_to_payment_dict(entry, bill_name) for entry, bill_name in db.execute(q).all()]
 
 
-def record_payment(
-    db: Session, bill_id: str, data: FixedBillPaymentCreate
-) -> dict:
+def record_payment(db: Session, bill_id: str, data: FixedBillPaymentCreate) -> dict:
     bill = db.get(FixedBill, bill_id)
     if not bill:
         raise ValueError(f"Bill {bill_id} not found")
@@ -549,39 +618,31 @@ def record_payment(
     category = bill.category or bill.name
     merchant_name = bill.merchant or bill.name
 
-    txn = Transaction(
+    entry = LedgerEntry(
         date=data.paid_date,
         account_id=bill.account_id,
         amount=data.paid_amount,
+        type="expense",
         category=category,
         merchant=merchant_name,
         tag="fixed",
         bill_id=bill_id,
     )
-    db.add(txn)
-
-    merchant_rec = db.scalars(select(Merchant).where(Merchant.name == merchant_name)).first()
-    if merchant_rec:
-        merchant_rec.default_category = category
-        txn.merchant_id = merchant_rec.id
-    else:
-        merchant_rec = Merchant(name=merchant_name, default_category=category)
-        db.add(merchant_rec)
-        db.flush()
-        txn.merchant_id = merchant_rec.id
+    db.add(entry)
+    _sync_merchant(db, entry, merchant_name, category)
 
     db.flush()
     recompute_balance(db, bill.account_id)
     db.commit()
-    db.refresh(txn)
-    return _txn_to_payment_dict(txn, bill.name)
+    db.refresh(entry)
+    return _entry_to_payment_dict(entry, bill.name)
 
 
 def delete_bill_payment(db: Session, payment_id: str) -> bool:
-    return delete_transaction(db, payment_id)
+    return delete_ledger_entry(db, payment_id)
 
 
-# ── Income ─────────────────────────────────────────────────────────────────────
+# ── Income Periods ─────────────────────────────────────────────────────────────
 
 def get_income_periods(
     db: Session,
@@ -604,9 +665,7 @@ def create_income_period(db: Session, data: IncomePeriodCreate) -> IncomePeriod:
     return period
 
 
-def update_income_period(
-    db: Session, period_id: str, data: IncomePeriodUpdate
-) -> IncomePeriod | None:
+def update_income_period(db: Session, period_id: str, data: IncomePeriodUpdate) -> IncomePeriod | None:
     period = db.get(IncomePeriod, period_id)
     if not period:
         return None
@@ -615,60 +674,6 @@ def update_income_period(
     db.commit()
     db.refresh(period)
     return period
-
-
-def get_income_entries(
-    db: Session, month: datetime.date | None = None
-) -> list[IncomeEntry]:
-    q = select(IncomeEntry).order_by(IncomeEntry.received_date.desc())
-    if month:
-        q = q.where(
-            extract("year", IncomeEntry.received_date) == month.year,
-            extract("month", IncomeEntry.received_date) == month.month,
-        )
-    return list(db.scalars(q).all())
-
-
-def create_income_entry(db: Session, data: IncomeEntryCreate) -> IncomeEntry:
-    entry = IncomeEntry(**data.model_dump())
-    db.add(entry)
-    db.flush()
-    if data.to_account_id:
-        recompute_balance(db, data.to_account_id)
-    db.commit()
-    db.refresh(entry)
-    return entry
-
-
-def update_income_entry(
-    db: Session, entry_id: str, data: IncomeEntryUpdate
-) -> IncomeEntry | None:
-    entry = db.get(IncomeEntry, entry_id)
-    if not entry:
-        return None
-    old_account_id = entry.to_account_id
-    for field, value in data.model_dump(exclude_none=True).items():
-        setattr(entry, field, value)
-    db.flush()
-    affected = {a for a in (old_account_id, entry.to_account_id) if a}
-    for aid in affected:
-        recompute_balance(db, aid)
-    db.commit()
-    db.refresh(entry)
-    return entry
-
-
-def delete_income_entry(db: Session, entry_id: str) -> bool:
-    entry = db.get(IncomeEntry, entry_id)
-    if not entry:
-        return False
-    account_id = entry.to_account_id
-    db.delete(entry)
-    db.flush()
-    if account_id:
-        recompute_balance(db, account_id)
-    db.commit()
-    return True
 
 
 # ── Allocation ─────────────────────────────────────────────────────────────────
@@ -694,136 +699,9 @@ def upsert_allocation(db: Session, data: AllocationCreate) -> Allocation:
     return allocation
 
 
-# ── Transfers ──────────────────────────────────────────────────────────────────
-
-def get_transfers(
-    db: Session,
-    account_id: str | None = None,
-    from_account_id: str | None = None,
-    to_account_id: str | None = None,
-    start: str | None = None,
-    end: str | None = None,
-    limit: int = 500,
-) -> list[Transfer]:
-    q = select(Transfer).order_by(Transfer.date.desc()).limit(limit)
-    if account_id:
-        q = q.where(
-            (Transfer.from_account_id == account_id) | (Transfer.to_account_id == account_id)
-        )
-    if from_account_id:
-        q = q.where(Transfer.from_account_id == from_account_id)
-    if to_account_id:
-        q = q.where(Transfer.to_account_id == to_account_id)
-    if start:
-        q = q.where(Transfer.date >= datetime.date.fromisoformat(start))
-    if end:
-        q = q.where(Transfer.date <= datetime.date.fromisoformat(end))
-    return list(db.scalars(q).all())
-
-
-def update_transfer(db: Session, transfer_id: str, data: TransferUpdate) -> Transfer | None:
-    transfer = db.get(Transfer, transfer_id)
-    if not transfer:
-        return None
-    old_from_id = transfer.from_account_id
-    old_to_id = transfer.to_account_id
-    for field, value in data.model_dump(exclude_none=True).items():
-        setattr(transfer, field, value)
-    db.flush()
-    for aid in {old_from_id, old_to_id, transfer.from_account_id, transfer.to_account_id}:
-        recompute_balance(db, aid)
-    db.commit()
-    db.refresh(transfer)
-    return transfer
-
-
-def create_transfer(db: Session, data: TransferCreate) -> Transfer:
-    transfer = Transfer(**data.model_dump())
-    db.add(transfer)
-    db.flush()
-    recompute_balance(db, data.from_account_id)
-    recompute_balance(db, data.to_account_id)
-    db.commit()
-    db.refresh(transfer)
-    return transfer
-
-
-def delete_transfer(db: Session, transfer_id: str) -> bool:
-    transfer = db.get(Transfer, transfer_id)
-    if not transfer:
-        return False
-    from_id = transfer.from_account_id
-    to_id = transfer.to_account_id
-    db.delete(transfer)
-    db.flush()
-    recompute_balance(db, from_id)
-    recompute_balance(db, to_id)
-    db.commit()
-    return True
-
-
-# ── Account Credits ─────────────────────────────────────────────────────────────
-
-def get_credits(
-    db: Session,
-    account_id: str | None = None,
-    start: str | None = None,
-    end: str | None = None,
-    limit: int = 500,
-) -> list[AccountCredit]:
-    q = select(AccountCredit).order_by(AccountCredit.date.desc()).limit(limit)
-    if account_id:
-        q = q.where(AccountCredit.account_id == account_id)
-    if start:
-        q = q.where(AccountCredit.date >= datetime.date.fromisoformat(start))
-    if end:
-        q = q.where(AccountCredit.date <= datetime.date.fromisoformat(end))
-    return list(db.scalars(q).all())
-
-
-def create_credit(db: Session, data: AccountCreditCreate) -> AccountCredit:
-    credit = AccountCredit(**data.model_dump())
-    db.add(credit)
-    db.flush()
-    recompute_balance(db, data.account_id)
-    db.commit()
-    db.refresh(credit)
-    return credit
-
-
-def update_credit(db: Session, credit_id: str, data: AccountCreditUpdate) -> AccountCredit | None:
-    credit = db.get(AccountCredit, credit_id)
-    if not credit:
-        return None
-    old_account_id = credit.account_id
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(credit, field, value)
-    db.flush()
-    recompute_balance(db, credit.account_id)
-    if old_account_id != credit.account_id:
-        recompute_balance(db, old_account_id)
-    db.commit()
-    db.refresh(credit)
-    return credit
-
-
-def delete_credit(db: Session, credit_id: str) -> bool:
-    credit = db.get(AccountCredit, credit_id)
-    if not credit:
-        return False
-    account_id = credit.account_id
-    db.delete(credit)
-    db.flush()
-    recompute_balance(db, account_id)
-    db.commit()
-    return True
-
-
 # ── Promo APR Windows ──────────────────────────────────────────────────────────
 
-def get_promo_windows(
-    db: Session, account_id: str | None = None
-) -> list[PromoAprWindow]:
+def get_promo_windows(db: Session, account_id: str | None = None) -> list[PromoAprWindow]:
     q = select(PromoAprWindow).order_by(PromoAprWindow.promo_end_date)
     if account_id:
         q = q.where(PromoAprWindow.account_id == account_id)
@@ -838,9 +716,7 @@ def create_promo_window(db: Session, data: PromoAprWindowCreate) -> PromoAprWind
     return window
 
 
-def update_promo_window(
-    db: Session, window_id: str, data: PromoAprWindowUpdate
-) -> PromoAprWindow | None:
+def update_promo_window(db: Session, window_id: str, data: PromoAprWindowUpdate) -> PromoAprWindow | None:
     window = db.get(PromoAprWindow, window_id)
     if not window:
         return None

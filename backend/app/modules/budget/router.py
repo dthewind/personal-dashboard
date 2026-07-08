@@ -7,19 +7,16 @@ from app.core.database import get_db
 from . import crud
 from .schemas import (
     AccountCreate, AccountOut, AccountUpdate,
-    AccountCreditCreate, AccountCreditOut, AccountCreditUpdate,
     AllocationCreate, AllocationOut,
     CategoryRuleUpdate,
     FixedBillCreate, FixedBillOut, FixedBillPaymentCreate, FixedBillPaymentOut, FixedBillUpdate,
     IncomePeriodCreate, IncomePeriodOut, IncomePeriodUpdate,
-    IncomeEntryCreate, IncomeEntryOut, IncomeEntryUpdate,
+    LedgerBulkCreate, LedgerEntryCreate, LedgerEntryOut, LedgerEntryUpdate,
     MerchantOut,
     PromoAprWindowCreate, PromoAprWindowOut, PromoAprWindowUpdate,
-    TransactionBulkCreate, TransactionCreate, TransactionOut, TransactionUpdate,
-    TransferCreate, TransferOut, TransferUpdate,
+    TransferPairCreate,
     WaterfallOut,
 )
-# FixedBillPaymentCreate is still used by the Bills payment endpoints (same API shape)
 
 router = APIRouter(prefix="/api/budget", tags=["budget"])
 
@@ -54,65 +51,59 @@ def update_account(account_id: str, data: AccountUpdate, db: Session = Depends(g
 
 @router.post("/accounts/recompute", status_code=204)
 def recompute_all(db: Session = Depends(get_db)):
-    """Recalculate current_balance for every account from ledger data."""
     crud.recompute_all_balances(db)
     db.commit()
 
 
-# ── Transactions ───────────────────────────────────────────────────────────────
+# ── Ledger ─────────────────────────────────────────────────────────────────────
 
-@router.get("/transactions", response_model=list[TransactionOut])
-def list_transactions(
+@router.get("/ledger", response_model=list[LedgerEntryOut])
+def list_ledger(
     start: datetime.date | None = None,
     end: datetime.date | None = None,
     account_id: str | None = None,
+    type: str | None = None,
     category: str | None = None,
     merchant: str | None = None,
-    limit: int = 500,
+    limit: int = 1000,
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
-    return crud.get_transactions(db, start=start, end=end, account_id=account_id, category=category, merchant=merchant, limit=limit, offset=offset)
+    return crud.get_ledger(
+        db, start=start, end=end, account_id=account_id,
+        entry_type=type, category=category, merchant=merchant,
+        limit=limit, offset=offset,
+    )
 
 
-@router.post("/transactions", response_model=TransactionOut, status_code=201)
-def create_transaction(
-    data: TransactionCreate,
-    update_balance: bool = True,
-    db: Session = Depends(get_db),
-):
-    return crud.create_transaction(db, data, update_balance=update_balance)
+@router.post("/ledger", response_model=LedgerEntryOut, status_code=201)
+def create_ledger_entry(data: LedgerEntryCreate, db: Session = Depends(get_db)):
+    return crud.create_ledger_entry(db, data)
 
 
-@router.post("/transactions/bulk", status_code=201)
-def bulk_create_transactions(
-    data: TransactionBulkCreate,
-    db: Session = Depends(get_db),
-):
-    count = crud.bulk_create_transactions(db, data.transactions)
+@router.post("/ledger/transfer", response_model=list[LedgerEntryOut], status_code=201)
+def create_transfer(data: TransferPairCreate, db: Session = Depends(get_db)):
+    return crud.create_transfer_pair(db, data)
+
+
+@router.post("/ledger/bulk", status_code=201)
+def bulk_create_ledger(data: LedgerBulkCreate, db: Session = Depends(get_db)):
+    count = crud.bulk_create_ledger_entries(db, data.entries)
     return {"created": count}
 
 
-@router.get("/transactions/{transaction_id}", response_model=TransactionOut)
-def get_transaction(transaction_id: str, db: Session = Depends(get_db)):
-    txn = crud.get_transaction(db, transaction_id)
-    if not txn:
-        raise HTTPException(404, "Transaction not found")
-    return txn
+@router.patch("/ledger/{entry_id}", response_model=LedgerEntryOut)
+def update_ledger_entry(entry_id: str, data: LedgerEntryUpdate, db: Session = Depends(get_db)):
+    result = crud.update_ledger_entry(db, entry_id, data)
+    if not result:
+        raise HTTPException(404, "Entry not found")
+    return result
 
 
-@router.patch("/transactions/{transaction_id}", response_model=TransactionOut)
-def update_transaction(transaction_id: str, data: TransactionUpdate, db: Session = Depends(get_db)):
-    txn = crud.update_transaction(db, transaction_id, data)
-    if not txn:
-        raise HTTPException(404, "Transaction not found")
-    return txn
-
-
-@router.delete("/transactions/{transaction_id}", status_code=204)
-def delete_transaction(transaction_id: str, db: Session = Depends(get_db)):
-    if not crud.delete_transaction(db, transaction_id):
-        raise HTTPException(404, "Transaction not found")
+@router.delete("/ledger/{entry_id}", status_code=204)
+def delete_ledger_entry(entry_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_ledger_entry(db, entry_id):
+        raise HTTPException(404, "Entry not found")
 
 
 # ── Type-ahead ─────────────────────────────────────────────────────────────────
@@ -210,16 +201,12 @@ def list_all_payments(
 
 
 @router.get("/bills/{bill_id}/payments", response_model=list[FixedBillPaymentOut])
-def list_payments(
-    bill_id: str, month: datetime.date | None = None, db: Session = Depends(get_db)
-):
+def list_payments(bill_id: str, month: datetime.date | None = None, db: Session = Depends(get_db)):
     return crud.get_bill_payments(db, bill_id, month=month)
 
 
 @router.post("/bills/{bill_id}/payments", response_model=FixedBillPaymentOut, status_code=201)
-def record_payment(
-    bill_id: str, data: FixedBillPaymentCreate, db: Session = Depends(get_db)
-):
+def record_payment(bill_id: str, data: FixedBillPaymentCreate, db: Session = Depends(get_db)):
     return crud.record_payment(db, bill_id, data)
 
 
@@ -246,39 +233,11 @@ def create_income_period(data: IncomePeriodCreate, db: Session = Depends(get_db)
 
 
 @router.patch("/income/periods/{period_id}", response_model=IncomePeriodOut)
-def update_income_period(
-    period_id: str, data: IncomePeriodUpdate, db: Session = Depends(get_db)
-):
+def update_income_period(period_id: str, data: IncomePeriodUpdate, db: Session = Depends(get_db)):
     period = crud.update_income_period(db, period_id, data)
     if not period:
         raise HTTPException(404, "Income period not found")
     return period
-
-
-# ── Income Entries ─────────────────────────────────────────────────────────────
-
-@router.get("/income", response_model=list[IncomeEntryOut])
-def list_income(month: datetime.date | None = None, db: Session = Depends(get_db)):
-    return crud.get_income_entries(db, month=month)
-
-
-@router.post("/income", response_model=IncomeEntryOut, status_code=201)
-def create_income(data: IncomeEntryCreate, db: Session = Depends(get_db)):
-    return crud.create_income_entry(db, data)
-
-
-@router.patch("/income/{entry_id}", response_model=IncomeEntryOut)
-def update_income(entry_id: str, data: IncomeEntryUpdate, db: Session = Depends(get_db)):
-    entry = crud.update_income_entry(db, entry_id, data)
-    if not entry:
-        raise HTTPException(404, "Income entry not found")
-    return entry
-
-
-@router.delete("/income/{entry_id}", status_code=204)
-def delete_income(entry_id: str, db: Session = Depends(get_db)):
-    if not crud.delete_income_entry(db, entry_id):
-        raise HTTPException(404, "Income entry not found")
 
 
 # ── Allocation ─────────────────────────────────────────────────────────────────
@@ -291,65 +250,6 @@ def get_allocation(month: datetime.date, db: Session = Depends(get_db)):
 @router.put("/allocation", response_model=AllocationOut)
 def upsert_allocation(data: AllocationCreate, db: Session = Depends(get_db)):
     return crud.upsert_allocation(db, data)
-
-
-# ── Transfers ──────────────────────────────────────────────────────────────────
-
-@router.get("/transfers", response_model=list[TransferOut])
-def list_transfers(
-    account_id: str | None = None,
-    from_account_id: str | None = None,
-    to_account_id: str | None = None,
-    start: str | None = None,
-    end: str | None = None,
-    db: Session = Depends(get_db),
-):
-    return crud.get_transfers(db, account_id=account_id, from_account_id=from_account_id, to_account_id=to_account_id, start=start, end=end)
-
-
-@router.post("/transfers", response_model=TransferOut, status_code=201)
-def create_transfer(data: TransferCreate, db: Session = Depends(get_db)):
-    return crud.create_transfer(db, data)
-
-
-@router.put("/transfers/{transfer_id}", response_model=TransferOut)
-def update_transfer(transfer_id: str, data: TransferUpdate, db: Session = Depends(get_db)):
-    result = crud.update_transfer(db, transfer_id, data)
-    if not result:
-        raise HTTPException(404, "Transfer not found")
-    return result
-
-
-@router.delete("/transfers/{transfer_id}", status_code=204)
-def delete_transfer(transfer_id: str, db: Session = Depends(get_db)):
-    if not crud.delete_transfer(db, transfer_id):
-        raise HTTPException(404, "Transfer not found")
-
-
-# ── Account Credits ─────────────────────────────────────────────────────────────
-
-@router.get("/credits", response_model=list[AccountCreditOut])
-def list_credits(account_id: str | None = None, start: str | None = None, end: str | None = None, db: Session = Depends(get_db)):
-    return crud.get_credits(db, account_id=account_id, start=start, end=end)
-
-
-@router.post("/credits", response_model=AccountCreditOut, status_code=201)
-def create_credit(data: AccountCreditCreate, db: Session = Depends(get_db)):
-    return crud.create_credit(db, data)
-
-
-@router.patch("/credits/{credit_id}", response_model=AccountCreditOut)
-def update_credit(credit_id: str, data: AccountCreditUpdate, db: Session = Depends(get_db)):
-    result = crud.update_credit(db, credit_id, data)
-    if not result:
-        raise HTTPException(404, "Credit not found")
-    return result
-
-
-@router.delete("/credits/{credit_id}", status_code=204)
-def delete_credit(credit_id: str, db: Session = Depends(get_db)):
-    if not crud.delete_credit(db, credit_id):
-        raise HTTPException(404, "Credit not found")
 
 
 # ── Promo APR Windows ──────────────────────────────────────────────────────────

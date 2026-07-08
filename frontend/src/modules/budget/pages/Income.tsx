@@ -7,7 +7,7 @@ import type {
   Account,
   AllocationCreate,
   IncomePeriod, IncomePeriodCreate,
-  IncomeEntry, IncomeEntryCreate,
+  LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate,
   IncomeType,
 } from '../types'
 
@@ -338,19 +338,19 @@ function IncomeEntryForm({
   saving,
 }: {
   defaultMonth: string
-  initial?: IncomeEntry
+  initial?: LedgerEntry
   accounts: Account[]
-  onSave: (d: IncomeEntryCreate) => void
+  onSave: (d: LedgerEntryCreate) => void
   onCancel: () => void
   saving: boolean
 }) {
-  const [type, setType] = useState<IncomeType>(initial?.type ?? 'contract')
+  const [type, setType] = useState<IncomeType>((initial?.subtype as IncomeType) ?? 'contract')
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
-  const [description, setDescription] = useState(initial?.description ?? '')
-  const [date, setDate] = useState(initial?.received_date ?? defaultMonth.slice(0, 7) + '-01')
-  const [toAccountId, setToAccountId] = useState(initial?.to_account_id ?? '')
-  const valid = amount && parseFloat(amount) > 0 && description.trim()
-  const checkingAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const [description, setDescription] = useState(initial?.notes ?? '')
+  const [date, setDate] = useState(initial?.date ?? defaultMonth.slice(0, 7) + '-01')
+  const [toAccountId, setToAccountId] = useState(initial?.account_id ?? '')
+  const depositAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const valid = amount && parseFloat(amount) > 0 && description.trim() && toAccountId
 
   return (
     <div className="bg-gray-900 border border-indigo-600 rounded-xl p-5 space-y-4">
@@ -408,23 +408,23 @@ function IncomeEntryForm({
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 text-sm"
         />
       </div>
-      {checkingAccounts.length > 0 && (
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">
-            Deposited into <span className="text-gray-600">(optional — updates account balance)</span>
-          </label>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Deposited into</label>
+        {depositAccounts.length === 0 ? (
+          <p className="text-xs text-amber-400">Add a checking or savings account first.</p>
+        ) : (
           <select
             value={toAccountId}
             onChange={e => setToAccountId(e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
           >
-            <option value="">— not linked —</option>
-            {checkingAccounts.map(a => (
+            <option value="">— select account —</option>
+            {depositAccounts.map(a => (
               <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
-        </div>
-      )}
+        )}
+      </div>
       <div className="flex gap-2">
         <button
           onClick={onCancel}
@@ -436,11 +436,12 @@ function IncomeEntryForm({
           disabled={!valid || saving}
           onClick={() =>
             onSave({
-              type,
+              type: 'income',
+              account_id: toAccountId,
               amount: parseFloat(amount),
-              description: description.trim(),
-              received_date: date,
-              to_account_id: toAccountId || undefined,
+              subtype: type,
+              notes: description.trim(),
+              date,
             })
           }
           className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
@@ -454,6 +455,12 @@ function IncomeEntryForm({
 
 // ── Income Entries section ────────────────────────────────────────────────────
 
+function lastDayOfMonth(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+}
+
 function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Account[] }) {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
@@ -461,34 +468,37 @@ function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Ac
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ['income', month],
-    queryFn: () => api.income.list(month),
+    queryKey: ['ledger', 'income', month],
+    queryFn: () => api.ledger.list({ start: month, end: lastDayOfMonth(month), type: 'income' }),
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: IncomeEntryCreate) => api.income.create(data),
+    mutationFn: (data: LedgerEntryCreate) => api.ledger.create(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['income', month] })
-      qc.invalidateQueries({ queryKey: ['waterfall', month] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
       setShowAdd(false)
     },
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: IncomeEntryCreate }) =>
-      api.income.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: LedgerEntryUpdate }) =>
+      api.ledger.update(id, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['income', month] })
-      qc.invalidateQueries({ queryKey: ['waterfall', month] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
       setEditingId(null)
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.income.delete(id),
+    mutationFn: (id: string) => api.ledger.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['income', month] })
-      qc.invalidateQueries({ queryKey: ['waterfall', month] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
       setConfirmDeleteId(null)
     },
   })
@@ -537,7 +547,13 @@ function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Ac
                     defaultMonth={month}
                     initial={entry}
                     accounts={accounts}
-                    onSave={data => updateMutation.mutate({ id: entry.id, data })}
+                    onSave={data => updateMutation.mutate({ id: entry.id, data: {
+                      date: data.date,
+                      account_id: data.account_id,
+                      amount: data.amount,
+                      subtype: data.subtype,
+                      notes: data.notes,
+                    }})}
                     onCancel={() => setEditingId(null)}
                     saving={updateMutation.isPending}
                   />
@@ -552,11 +568,11 @@ function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Ac
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-sm text-gray-200">{entry.description}</span>
-                    <span className="text-xs text-gray-500 capitalize flex-shrink-0">{entry.type}</span>
+                    <span className="text-sm text-gray-200">{entry.notes}</span>
+                    <span className="text-xs text-gray-500 capitalize flex-shrink-0">{entry.subtype}</span>
                   </div>
                   <div className="text-xs text-gray-600 mt-0.5">
-                    {new Date(entry.received_date + 'T12:00:00').toLocaleDateString('en-US', {
+                    {new Date(entry.date + 'T12:00:00').toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
                     })}

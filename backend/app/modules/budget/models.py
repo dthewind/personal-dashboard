@@ -38,6 +38,7 @@ class Account(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account")
+    ledger_entries: Mapped[list["LedgerEntry"]] = relationship(back_populates="account")
     fixed_bills: Mapped[list["FixedBill"]] = relationship(back_populates="account")
     reward_rules: Mapped[list["RewardRule"]] = relationship(back_populates="account")
     promo_apr_windows: Mapped[list["PromoAprWindow"]] = relationship(back_populates="account")
@@ -227,3 +228,35 @@ class CategoryRule(Base):
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
     exclude_from_spend: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exclude_from_trends: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class LedgerEntry(Base):
+    __tablename__ = "ledger_entries"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    # expense | income | credit | transfer_out | transfer_in
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # expense fields
+    merchant: Mapped[str | None] = mapped_column(String(200))
+    merchant_id: Mapped[str | None] = mapped_column(ForeignKey("merchants.id"))
+    category: Mapped[str | None] = mapped_column(String(100))
+    tag: Mapped[str | None] = mapped_column(String(10))  # fixed | variable | one_off
+
+    # income: contract/interest/tbill/investment/other
+    # credit: cashback/interest_earned/dispute/other
+    subtype: Mapped[str | None] = mapped_column(String(30))
+
+    # links
+    period_id: Mapped[str | None] = mapped_column(ForeignKey("income_periods.id"))
+    bill_id: Mapped[str | None] = mapped_column(ForeignKey("fixed_bills.id"))
+    reward_rule_id: Mapped[str | None] = mapped_column(ForeignKey("reward_rules.id"))
+    linked_entry_id: Mapped[str | None] = mapped_column(ForeignKey("ledger_entries.id"))
+
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    account: Mapped["Account"] = relationship(back_populates="ledger_entries")
+    merchant_ref: Mapped["Merchant | None"] = relationship()

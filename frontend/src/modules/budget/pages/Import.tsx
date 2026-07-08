@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { Account, TransactionCreate, TransactionTag } from '../types'
+import type { Account, LedgerEntryCreate, TransactionTag } from '../types'
 import { todayStr } from '../utils'
 import Typeahead from '../components/Typeahead'
 
@@ -155,11 +155,11 @@ function ManualBatchEntry({ accounts, categories }: { accounts: Account[]; categ
   const [saved, setSaved] = useState(0)
 
   const mutation = useMutation({
-    mutationFn: (txns: TransactionCreate[]) => api.transactions.bulk(txns),
+    mutationFn: (entries: LedgerEntryCreate[]) => api.ledger.bulk(entries),
     onSuccess: (res) => {
       setSaved(res.created)
       setRows([emptyRow()])
-      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['waterfall'] })
       qc.invalidateQueries({ queryKey: ['categories'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
@@ -184,7 +184,8 @@ function ManualBatchEntry({ accounts, categories }: { accounts: Account[]; categ
   )
 
   function save() {
-    const txns: TransactionCreate[] = valid.map(r => ({
+    const entries: LedgerEntryCreate[] = valid.map(r => ({
+      type: 'expense' as const,
       date: r.date,
       account_id: r.accountId,
       amount: parseFloat(r.amount),
@@ -192,7 +193,7 @@ function ManualBatchEntry({ accounts, categories }: { accounts: Account[]; categ
       category: r.category.trim(),
       tag: r.tag,
     }))
-    mutation.mutate(txns)
+    mutation.mutate(entries)
   }
 
   return (
@@ -304,11 +305,11 @@ function CsvImport({ accounts, categories }: { accounts: Account[]; categories: 
   const [dragOver, setDragOver] = useState(false)
 
   const mutation = useMutation({
-    mutationFn: (txns: TransactionCreate[]) => api.transactions.bulk(txns),
+    mutationFn: (entries: LedgerEntryCreate[]) => api.ledger.bulk(entries),
     onSuccess: (res) => {
       setSaved(res.created)
       setRows([])
-      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
       qc.invalidateQueries({ queryKey: ['waterfall'] })
       qc.invalidateQueries({ queryKey: ['categories'] })
       qc.invalidateQueries({ queryKey: ['merchants'] })
@@ -352,7 +353,8 @@ function CsvImport({ accounts, categories }: { accounts: Account[]; categories: 
   const ready = selected.filter(r => r.accountId && r.merchant.trim() && r.category.trim())
 
   function doImport() {
-    const txns: TransactionCreate[] = ready.map(r => ({
+    const entries: LedgerEntryCreate[] = ready.map(r => ({
+      type: 'expense' as const,
       date: r.date,
       account_id: r.accountId!,
       amount: r.amount,
@@ -360,7 +362,7 @@ function CsvImport({ accounts, categories }: { accounts: Account[]; categories: 
       category: r.category.trim(),
       tag: r.tag,
     }))
-    mutation.mutate(txns)
+    mutation.mutate(entries)
   }
 
   const accountNames = accounts.map(a => a.name).sort()

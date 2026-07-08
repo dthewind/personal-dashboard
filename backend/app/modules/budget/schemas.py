@@ -138,6 +138,74 @@ class WaterfallOut(BaseModel):
     days_left: int
 
 
+# ── Ledger ────────────────────────────────────────────────────────────────────
+
+LedgerEntryType = Literal["expense", "income", "credit", "transfer_out", "transfer_in"]
+
+
+class LedgerEntryCreate(BaseModel):
+    date: datetime.date
+    account_id: str
+    amount: Decimal
+    type: LedgerEntryType
+    merchant: str | None = None
+    category: str | None = None
+    tag: TransactionTag | None = None
+    subtype: str | None = None
+    period_id: str | None = None
+    bill_id: str | None = None
+    reward_rule_id: str | None = None
+    linked_entry_id: str | None = None
+    notes: str | None = None
+
+
+class LedgerEntryUpdate(BaseModel):
+    date: datetime.date | None = None
+    account_id: str | None = None
+    amount: Decimal | None = None
+    merchant: str | None = None
+    category: str | None = None
+    tag: TransactionTag | None = None
+    subtype: str | None = None
+    period_id: str | None = None
+    bill_id: str | None = None
+    reward_rule_id: str | None = None
+    notes: str | None = None
+
+
+class LedgerEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    date: datetime.date
+    account_id: str
+    amount: DecimalJSON
+    type: str
+    merchant: str | None
+    merchant_id: str | None
+    category: str | None
+    tag: str | None
+    subtype: str | None
+    period_id: str | None
+    bill_id: str | None
+    reward_rule_id: str | None
+    linked_entry_id: str | None
+    notes: str | None
+    counterpart_account_id: str | None = None
+
+
+class LedgerBulkCreate(BaseModel):
+    entries: list[LedgerEntryCreate]
+
+
+class TransferPairCreate(BaseModel):
+    from_account_id: str
+    to_account_id: str
+    amount: Decimal
+    date: datetime.date
+    description: str | None = None
+
+
 # ── Category Rules ────────────────────────────────────────────────────────────
 
 class CategoryRuleUpdate(BaseModel):

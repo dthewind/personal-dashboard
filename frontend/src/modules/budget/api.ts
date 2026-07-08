@@ -3,12 +3,9 @@ import type {
   Allocation, AllocationCreate,
   FixedBill, FixedBillCreate, FixedBillUpdate, FixedBillPayment,
   IncomePeriod, IncomePeriodCreate, IncomePeriodUpdate,
-  IncomeEntry, IncomeEntryCreate, IncomeEntryUpdate,
+  LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate,
   Merchant,
   PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate,
-  Transaction, TransactionCreate,
-  AccountCredit, AccountCreditCreate, AccountCreditUpdate,
-  Transfer, TransferCreate, TransferUpdate,
   WaterfallData,
 } from './types'
 
@@ -34,27 +31,29 @@ export const api = {
     recompute: () => req<void>('/accounts/recompute', { method: 'POST' }),
   },
 
-  transactions: {
-    list: (params?: { start?: string; end?: string; account_id?: string; category?: string }) => {
-      const q = new URLSearchParams(
+  ledger: {
+    list: (params?: {
+      start?: string; end?: string; account_id?: string
+      type?: string; category?: string; merchant?: string
+    }) => {
+      const qs = new URLSearchParams(
         Object.fromEntries(
           Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== '')
         ) as Record<string, string>
       ).toString()
-      return req<Transaction[]>(`/transactions${q ? '?' + q : ''}`)
+      return req<LedgerEntry[]>(`/ledger${qs ? '?' + qs : ''}`)
     },
-    create: (data: TransactionCreate, updateBalance = true) =>
-      req<Transaction>(
-        `/transactions${updateBalance ? '' : '?update_balance=false'}`,
-        { method: 'POST', body: JSON.stringify(data) },
-      ),
-    update: (id: string, data: Partial<TransactionCreate>) =>
-      req<Transaction>(`/transactions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) => req<void>(`/transactions/${id}`, { method: 'DELETE' }),
-    bulk: (transactions: TransactionCreate[]) =>
-      req<{ created: number }>('/transactions/bulk', {
+    create: (data: LedgerEntryCreate) =>
+      req<LedgerEntry>('/ledger', { method: 'POST', body: JSON.stringify(data) }),
+    createTransfer: (data: TransferPairCreate) =>
+      req<LedgerEntry[]>('/ledger/transfer', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: LedgerEntryUpdate) =>
+      req<LedgerEntry>(`/ledger/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/ledger/${id}`, { method: 'DELETE' }),
+    bulk: (entries: LedgerEntryCreate[]) =>
+      req<{ created: number }>('/ledger/bulk', {
         method: 'POST',
-        body: JSON.stringify({ transactions }),
+        body: JSON.stringify({ entries }),
       }),
   },
 
@@ -100,48 +99,7 @@ export const api = {
       req<void>(`/bills/${billId}/payments/${paymentId}`, { method: 'DELETE' }),
   },
 
-  transfers: {
-    list: (params?: { account_id?: string; from_account_id?: string; to_account_id?: string; start?: string; end?: string }) => {
-      const qs = new URLSearchParams()
-      if (params?.account_id) qs.set('account_id', params.account_id)
-      if (params?.from_account_id) qs.set('from_account_id', params.from_account_id)
-      if (params?.to_account_id) qs.set('to_account_id', params.to_account_id)
-      if (params?.start) qs.set('start', params.start)
-      if (params?.end) qs.set('end', params.end)
-      const q = qs.toString()
-      return req<Transfer[]>(`/transfers${q ? '?' + q : ''}`)
-    },
-    create: (data: TransferCreate) =>
-      req<Transfer>('/transfers', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: TransferUpdate) =>
-      req<Transfer>(`/transfers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) => req<void>(`/transfers/${id}`, { method: 'DELETE' }),
-  },
-
-  credits: {
-    list: (params?: { account_id?: string; start?: string; end?: string }) => {
-      const qs = new URLSearchParams()
-      if (params?.account_id) qs.set('account_id', params.account_id)
-      if (params?.start) qs.set('start', params.start)
-      if (params?.end) qs.set('end', params.end)
-      const q = qs.toString()
-      return req<AccountCredit[]>(`/credits${q ? '?' + q : ''}`)
-    },
-    create: (data: AccountCreditCreate) =>
-      req<AccountCredit>('/credits', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: AccountCreditUpdate) =>
-      req<AccountCredit>(`/credits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) => req<void>(`/credits/${id}`, { method: 'DELETE' }),
-  },
-
   income: {
-    list: (month?: string) =>
-      req<IncomeEntry[]>(`/income${month ? '?month=' + month : ''}`),
-    create: (data: IncomeEntryCreate) =>
-      req<IncomeEntry>('/income', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: IncomeEntryUpdate) =>
-      req<IncomeEntry>(`/income/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) => req<void>(`/income/${id}`, { method: 'DELETE' }),
     periods: {
       list: (params?: { work_month?: string; pay_month?: string }) => {
         const q = new URLSearchParams(

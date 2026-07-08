@@ -34,9 +34,9 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { value
 export default function Trends() {
   const [range, setRange] = useState<DateRange>(defaultRange('this_year'))
 
-  const { data: transactions } = useQuery({
-    queryKey: ['transactions', range.start, range.end],
-    queryFn: () => api.transactions.list({ start: range.start, end: range.end }),
+  const { data: expenses } = useQuery({
+    queryKey: ['ledger', 'expense', range.start, range.end],
+    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'expense' }),
     enabled: !!(range.start && range.end),
   })
 
@@ -52,12 +52,13 @@ export default function Trends() {
 
   const hiddenCats = new Set((catStats ?? []).filter(c => c.exclude_from_trends).map(c => c.name))
 
-  const visibleTxns = (transactions ?? []).filter(t => !hiddenCats.has(t.category))
+  const visibleEntries = (expenses ?? []).filter(e => !hiddenCats.has(e.category ?? ''))
 
   // Aggregate by category
   const byCat: Record<string, number> = {}
-  for (const t of visibleTxns) {
-    byCat[t.category] = (byCat[t.category] ?? 0) + t.amount
+  for (const e of visibleEntries) {
+    const cat = e.category ?? 'Uncategorized'
+    byCat[cat] = (byCat[cat] ?? 0) + e.amount
   }
   const categoryData = Object.entries(byCat)
     .map(([name, amount]) => ({ name, amount }))
@@ -66,16 +67,16 @@ export default function Trends() {
   // Aggregate by account
   const accountMap = Object.fromEntries((accounts ?? []).map(a => [a.id, a.name]))
   const byAcc: Record<string, number> = {}
-  for (const t of visibleTxns) {
-    const name = accountMap[t.account_id] ?? t.account_id
-    byAcc[name] = (byAcc[name] ?? 0) + t.amount
+  for (const e of visibleEntries) {
+    const name = accountMap[e.account_id] ?? e.account_id
+    byAcc[name] = (byAcc[name] ?? 0) + e.amount
   }
   const accountData = Object.entries(byAcc)
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount)
 
-  const total = visibleTxns.reduce((s, t) => s + t.amount, 0)
-  const count = visibleTxns.length
+  const total = visibleEntries.reduce((s, e) => s + e.amount, 0)
+  const count = visibleEntries.length
   const avgPerTxn = count > 0 ? total / count : 0
 
   return (
@@ -84,11 +85,11 @@ export default function Trends() {
         <DateRangePicker value={range} onChange={setRange} />
       </div>
 
-      {!transactions && (
+      {!expenses && (
         <div className="text-gray-500 text-sm">Loading…</div>
       )}
 
-      {transactions && (
+      {expenses && (
         <>
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">

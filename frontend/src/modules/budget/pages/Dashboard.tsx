@@ -3,7 +3,7 @@ import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
-import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, IncomeEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
+import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
 
@@ -584,18 +584,22 @@ const INCOME_TYPES: { value: IncomeType; label: string }[] = [
 
 function AddIncomeModal({
   month,
+  accounts,
   onClose,
   onSave,
 }: {
   month: string
+  accounts: Account[]
   onClose: () => void
-  onSave: (d: IncomeEntryCreate) => void
+  onSave: (d: LedgerEntryCreate) => void
 }) {
-  const [type, setType] = useState<IncomeType>('contract')
+  const depositAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const [subtype, setSubtype] = useState<IncomeType>('contract')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [date, setDate] = useState(month.slice(0, 7) + '-01')
-  const valid = amount && parseFloat(amount) > 0 && description.trim()
+  const [accountId, setAccountId] = useState(depositAccounts[0]?.id ?? '')
+  const valid = amount && parseFloat(amount) > 0 && description.trim() && accountId
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -607,9 +611,9 @@ function AddIncomeModal({
             {INCOME_TYPES.map(t => (
               <button
                 key={t.value}
-                onClick={() => setType(t.value)}
+                onClick={() => setSubtype(t.value)}
                 className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                  type === t.value ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                  subtype === t.value ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
                 }`}
               >
                 {t.label}
@@ -638,14 +642,27 @@ function AddIncomeModal({
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Received Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Received Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Deposit Account</label>
+            <select
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">— select —</option>
+              {depositAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
         </div>
         <div className="flex gap-3 pt-1">
           <button onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl py-2.5 text-sm">Cancel</button>
@@ -653,10 +670,12 @@ function AddIncomeModal({
             disabled={!valid}
             onClick={() =>
               onSave({
-                type,
+                type: 'income',
+                account_id: accountId,
                 amount: parseFloat(amount),
-                description: description.trim(),
-                received_date: date,
+                subtype,
+                notes: description.trim(),
+                date,
               })
             }
             className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl py-2.5 text-sm font-medium"
@@ -1095,9 +1114,15 @@ export default function Dashboard() {
     queryFn: () => api.accounts.list(),
   })
 
+  const monthEnd = useMemo(() => {
+    const [y, m] = month.split('-').map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  }, [month])
+
   const { data: income } = useQuery({
-    queryKey: ['income', month],
-    queryFn: () => api.income.list(month),
+    queryKey: ['ledger', 'income', month],
+    queryFn: () => api.ledger.list({ start: month, end: monthEnd, type: 'income' }),
   })
 
   const addAccountMutation = useMutation({
@@ -1109,10 +1134,11 @@ export default function Dashboard() {
   })
 
   const addIncomeMutation = useMutation({
-    mutationFn: (data: Parameters<typeof api.income.create>[0]) => api.income.create(data),
+    mutationFn: (data: LedgerEntryCreate) => api.ledger.create(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['income', month] })
-      qc.invalidateQueries({ queryKey: ['waterfall', month] })
+      qc.invalidateQueries({ queryKey: ['ledger'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
       setShowAddIncome(false)
     },
   })
@@ -1240,8 +1266,8 @@ export default function Dashboard() {
             {income!.map(e => (
               <div key={e.id} className="flex justify-between items-center">
                 <div>
-                  <span className="text-sm text-gray-300">{e.description}</span>
-                  <span className="ml-2 text-xs text-gray-500 capitalize">{e.type}</span>
+                  <span className="text-sm text-gray-300">{e.notes}</span>
+                  <span className="ml-2 text-xs text-gray-500 capitalize">{e.subtype}</span>
                 </div>
                 <span className="text-sm font-mono text-emerald-400">{fmt(e.amount)}</span>
               </div>
@@ -1272,6 +1298,7 @@ export default function Dashboard() {
       {showAddIncome && (
         <AddIncomeModal
           month={month}
+          accounts={allAccounts}
           onClose={() => setShowAddIncome(false)}
           onSave={data => addIncomeMutation.mutate(data)}
         />

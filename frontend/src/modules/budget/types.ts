@@ -1,6 +1,7 @@
 export type AccountType = 'credit_card' | 'checking' | 'savings' | 'investment'
 export type TransactionTag = 'fixed' | 'variable' | 'one_off'
 export type IncomeType = 'contract' | 'interest' | 'tbill' | 'investment' | 'other'
+export type LedgerEntryType = 'expense' | 'income' | 'credit' | 'transfer_out' | 'transfer_in'
 
 export type AutopayType = 'off' | 'minimum' | 'full'
 
@@ -34,6 +35,65 @@ export interface AccountCreate {
   annual_fee_month?: number
   last_4?: string
 }
+
+export interface LedgerEntry {
+  id: string
+  date: string
+  account_id: string
+  amount: number
+  type: LedgerEntryType
+  merchant: string | null
+  merchant_id: string | null
+  category: string | null
+  tag: TransactionTag | null
+  subtype: string | null       // income: contract/interest/etc  credit: cashback/dispute/etc
+  period_id: string | null
+  bill_id: string | null
+  reward_rule_id: string | null
+  linked_entry_id: string | null
+  notes: string | null
+  counterpart_account_id: string | null  // populated for transfer_out/transfer_in
+}
+
+export interface LedgerEntryCreate {
+  date: string
+  account_id: string
+  amount: number
+  type: LedgerEntryType
+  merchant?: string
+  category?: string
+  tag?: TransactionTag
+  subtype?: string
+  period_id?: string
+  bill_id?: string
+  reward_rule_id?: string
+  linked_entry_id?: string
+  notes?: string
+}
+
+export interface LedgerEntryUpdate {
+  date?: string
+  account_id?: string
+  amount?: number
+  merchant?: string
+  category?: string
+  tag?: TransactionTag
+  subtype?: string
+  period_id?: string
+  bill_id?: string
+  reward_rule_id?: string
+  notes?: string
+}
+
+export interface TransferPairCreate {
+  from_account_id: string
+  to_account_id: string
+  amount: number
+  date: string
+  description?: string
+}
+
+// ── Legacy types (kept for Bills/Income period forms) ─────────────────────────
 
 export interface Transaction {
   id: string
@@ -169,7 +229,7 @@ export interface IncomeEntryCreate {
   amount: number
   description: string
   received_date: string
-  to_account_id?: string
+  to_account_id: string  // required — income must be linked to an account
 }
 
 export interface IncomeEntryUpdate {
