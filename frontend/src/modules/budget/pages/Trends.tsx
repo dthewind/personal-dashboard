@@ -330,7 +330,7 @@ export default function Trends() {
           {/* Anomaly callouts */}
           {anomalies.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Spending Alerts</div>
+              <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">Spending Alerts</div>
               {anomalies.map(a => (
                 <div key={a.cat} className="bg-amber-950/25 border border-amber-800/40 rounded-xl px-4 py-3 flex justify-between items-center">
                   <div>
@@ -348,7 +348,7 @@ export default function Trends() {
           {/* Monthly Overview */}
           {monthlyData.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-5">Income vs Spend</h2>
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-5">Income vs Spend</h2>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={monthlyData} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
                   <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -366,7 +366,7 @@ export default function Trends() {
           {/* MoM Delta */}
           {momDelta.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-1">
                 Category Change
               </h2>
               <p className="text-xs text-gray-600 mb-4">{latestLabel} vs {prevLabel} · sorted by dollar impact</p>
@@ -396,7 +396,7 @@ export default function Trends() {
           {/* Stacked area */}
           {stackedAreaData.length > 1 && topCategories.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-5">
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-5">
                 Category Composition Over Time
               </h2>
               <ResponsiveContainer width="100%" height={220}>
@@ -425,7 +425,7 @@ export default function Trends() {
           {/* Fixed vs Discretionary */}
           {fixedVsDiscretionary.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-5">
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-5">
                 Fixed vs Discretionary
               </h2>
               <div className="flex items-center gap-8">
@@ -477,7 +477,7 @@ export default function Trends() {
           {categoryData.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
               <div className="flex items-center justify-between mb-5">
-                <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Category Spotlight</h2>
+                <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">Category Spotlight</h2>
                 <select
                   value={spotlightCat}
                   onChange={e => setSpotlightCat(e.target.value)}
@@ -508,7 +508,7 @@ export default function Trends() {
           {/* By Category */}
           {categoryData.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-5">By Category</h2>
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-5">By Category</h2>
               <ResponsiveContainer width="100%" height={Math.max(180, categoryData.length * 38)}>
                 <BarChart data={categoryData} layout="vertical" margin={{ left: 0, right: 60, top: 0, bottom: 0 }}>
                   <XAxis type="number" hide />
@@ -527,7 +527,7 @@ export default function Trends() {
           {/* By Account */}
           {accountData.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">By Account</h2>
+              <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-4">By Account</h2>
               <div className="space-y-3">
                 {accountData.map(({ name, amount }, i) => {
                   const pct = total > 0 ? (amount / total) * 100 : 0

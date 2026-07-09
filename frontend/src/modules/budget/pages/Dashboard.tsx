@@ -124,7 +124,7 @@ function Waterfall({ w, month, monthEnd, accounts }: { w: WaterfallData; month: 
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Waterfall</h2>
+      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-3">Waterfall</h2>
       <WRow label="Gross Income" amount={w.gross_income} color="green"
         expandKey="income" expanded={expanded === 'income'} onToggle={() => toggle('income')} />
       {expanded === 'income' && <WaterfallDrilldown entries={incomeEntries ?? []} accounts={accounts} emptyText="No income entries this month." />}
@@ -367,7 +367,7 @@ function CreditAccountSection({ accounts, onEdit }: { accounts: Account[]; onEdi
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Credit Cards</span>
+        <span className="text-xs font-medium text-gray-300 uppercase tracking-wider">Credit Cards</span>
       </div>
       <table className="w-full">
         <thead>
@@ -412,7 +412,7 @@ function SimpleAccountSection({ label, accounts, onEdit }: { label: string; acco
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{label}</span>
+        <span className="text-xs font-medium text-gray-300 uppercase tracking-wider">{label}</span>
       </div>
       <table className="w-full">
         <thead>
@@ -447,7 +447,7 @@ function NetWorthSummary({ accounts }: { accounts: Account[] }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
       <div className="px-4 py-2 border-b border-gray-800 bg-gray-800/40">
-        <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">Net Worth</span>
+        <span className="text-xs font-medium text-gray-300 uppercase tracking-wider">Net Worth</span>
       </div>
       <table className="w-full">
         <tbody>
@@ -786,7 +786,7 @@ function AllocationSection({ month }: { month: string }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
       <div className="flex justify-between items-center mb-3">
-        <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+        <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">
           Deductions &amp; Savings
         </h2>
         {!editing && (
@@ -1092,7 +1092,7 @@ function PromoWindowsSection({ accounts }: { accounts: Account[] }) {
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Promo Financing</h2>
+          <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">Promo Financing</h2>
           <button onClick={() => setShowAdd(true)} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
         </div>
         <p className="text-gray-600 text-sm">No promo windows tracked.</p>
@@ -1110,7 +1110,7 @@ function PromoWindowsSection({ accounts }: { accounts: Account[] }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Promo Financing</h2>
+        <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">Promo Financing</h2>
         <button onClick={() => setShowAdd(true)} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1207,7 +1207,7 @@ function SavingsRateWidget({ annualData }: { annualData: MonthlySummary[] }) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">Savings Rate</h2>
+      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-4">Savings Rate</h2>
 
       <div className="flex items-end gap-6 mb-4">
         <div>
@@ -1294,7 +1294,7 @@ function IncomeRunwayWidget({
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Income Runway</h2>
+      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-3">Income Runway</h2>
       <div className="flex items-baseline gap-3 mb-3">
         <div className={`text-3xl font-bold font-mono ${runwayColor}`}>
           {runway != null ? `${runway.toFixed(1)} mo` : '—'}
@@ -1390,7 +1390,7 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">Next 30 Days</h2>
+      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-4">Next 30 Days</h2>
 
       <div className="flex gap-6 mb-4">
         <div>
@@ -1539,7 +1539,7 @@ export default function Dashboard() {
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <div className="flex items-start justify-between gap-6 flex-wrap">
           <div>
-            <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Remaining</div>
+            <div className="text-xs text-gray-300 uppercase tracking-wider mb-1">Remaining</div>
             <div className={`text-4xl font-bold font-mono ${remainingColor}`}>
               {fmt(w.remaining)}
             </div>
@@ -1659,7 +1659,7 @@ export default function Dashboard() {
       {/* Accounts */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Accounts</h2>
+          <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">Accounts</h2>
           <button onClick={() => setShowAddAccount(true)} className="text-xs text-indigo-400 hover:text-indigo-300">
             + Add
           </button>
@@ -1685,7 +1685,7 @@ export default function Dashboard() {
       {/* Income this month */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+          <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">
             Income — {monthLabel(month)}
           </h2>
           <button

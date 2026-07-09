@@ -186,7 +186,7 @@ function RuleForm({
 
   return (
     <div className="space-y-3 border-t border-gray-800 pt-4 mt-4">
-      <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+      <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
         {initial ? 'Edit Rule' : 'Add Rule'}
       </div>
 
