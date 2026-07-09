@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+﻿import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt } from '../utils'
@@ -186,7 +186,7 @@ function RuleForm({
 
   return (
     <div className="space-y-3 border-t border-gray-800 pt-4 mt-4">
-      <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+      <div className="text-xs font-medium text-white uppercase tracking-wider">
         {initial ? 'Edit Rule' : 'Add Rule'}
       </div>
 

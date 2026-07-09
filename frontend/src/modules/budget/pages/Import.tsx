@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+﻿import { useState, useRef, useCallback } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -416,7 +416,7 @@ function CsvImport({ accounts, categories }: { accounts: Account[]; categories: 
       {rows.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-            <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">Review</div>
+            <div className="text-xs font-medium text-white uppercase tracking-wider">Review</div>
             <div className="flex items-center gap-3">
               <button onClick={() => toggleAll(true)} className="text-xs text-gray-500 hover:text-gray-300">Select all</button>
               <button onClick={() => toggleAll(false)} className="text-xs text-gray-500 hover:text-gray-300">Deselect all</button>

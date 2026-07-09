@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -93,7 +93,7 @@ function WorkPeriodCard({ month }: { month: string }) {
   if (period && editing) {
     return (
       <div className="bg-gray-900 border border-indigo-600 rounded-xl p-5 space-y-4">
-        <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">Edit Work Period</div>
+        <div className="text-xs font-medium text-white uppercase tracking-wider">Edit Work Period</div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Pay Month</label>
@@ -176,7 +176,7 @@ function WorkPeriodCard({ month }: { month: string }) {
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">Contract Work Period</div>
+            <div className="text-xs font-medium text-white uppercase tracking-wider">Contract Work Period</div>
             <div className="text-xs text-gray-500 mt-0.5">
               {monthLabel(period.work_month)} work → {payLbl} pay
             </div>
@@ -229,7 +229,7 @@ function WorkPeriodCard({ month }: { month: string }) {
   if (showSetup) {
     return (
       <div className="bg-gray-900 border border-indigo-600 rounded-xl p-5 space-y-4">
-        <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+        <div className="text-xs font-medium text-white uppercase tracking-wider">
           Set Up Work Period — {monthLabel(month)}
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -306,7 +306,7 @@ function WorkPeriodCard({ month }: { month: string }) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <div className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-2">Contract Work Period</div>
+      <div className="text-xs font-medium text-white uppercase tracking-wider mb-2">Contract Work Period</div>
       <div className="flex items-center justify-between">
         <p className="text-gray-500 text-sm">No work period tracked for {monthLabel(month)}.</p>
         <button
@@ -355,7 +355,7 @@ function IncomeEntryForm({
 
   return (
     <div className="bg-gray-900 border border-indigo-600 rounded-xl p-5 space-y-4">
-      <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+      <div className="text-xs font-medium text-white uppercase tracking-wider">
         {initial ? 'Edit Income' : 'Add Income'}
       </div>
       <div>
@@ -509,7 +509,7 @@ function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Ac
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+        <h2 className="text-xs font-medium text-white uppercase tracking-wider">
           Income Received — {monthLabel(month)}
         </h2>
         {!showAdd && (
@@ -669,7 +669,7 @@ function DeductionsSection({ month }: { month: string }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+        <h2 className="text-xs font-medium text-white uppercase tracking-wider">
           Deductions &amp; Savings — {monthLabel(month)}
         </h2>
         {!editing && (
@@ -756,7 +756,7 @@ function SEPHeadroomWidget({ annualData }: { annualData: MonthlySummary[] }) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-4">SEP-IRA Headroom</h2>
+      <h2 className="text-xs font-medium text-white uppercase tracking-wider mb-4">SEP-IRA Headroom</h2>
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <div className="text-xs text-gray-500">Cap (2025)</div>
@@ -810,7 +810,7 @@ function SummarySection({ month }: { month: string }) {
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-3">
+      <h2 className="text-xs font-medium text-white uppercase tracking-wider mb-3">
         Summary — {monthLabel(month)}
       </h2>
       <div className="space-y-1">
