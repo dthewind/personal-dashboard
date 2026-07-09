@@ -6,7 +6,6 @@ import Bills from './pages/Bills'
 import Trends from './pages/Trends'
 import IncomePage from './pages/Income'
 import ImportPage from './pages/Import'
-import TransfersPage from './pages/Transfers'
 import LookupPage from './pages/Lookup'
 
 const TABS = [
@@ -14,7 +13,6 @@ const TABS = [
   { to: '/budget/add', label: 'Quick Add' },
   { to: '/budget/transactions', label: 'Transactions' },
   { to: '/budget/bills', label: 'Bills' },
-  { to: '/budget/transfers', label: 'Transfers' },
   { to: '/budget/income', label: 'Income' },
   { to: '/budget/trends', label: 'Trends' },
   { to: '/budget/import', label: 'Import', desktopOnly: true },
@@ -49,7 +47,6 @@ export default function BudgetModule() {
         <Route path="bills" element={<Bills />} />
         <Route path="income" element={<IncomePage />} />
         <Route path="trends" element={<Trends />} />
-        <Route path="transfers" element={<TransfersPage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="lookup" element={<LookupPage />} />
       </Routes>
