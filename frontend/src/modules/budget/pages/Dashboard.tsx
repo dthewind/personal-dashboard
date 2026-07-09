@@ -1539,8 +1539,7 @@ export default function Dashboard() {
 
   return (
     <PageShell>
-      <div className="flex justify-between items-center">
-        <span className="text-xs text-gray-600 select-none">build-0709</span>
+      <div className="flex justify-end">
         <MonthNav month={month} onChange={setMonth} />
       </div>
 
