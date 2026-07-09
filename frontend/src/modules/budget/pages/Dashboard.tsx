@@ -1442,10 +1442,30 @@ export default function Dashboard() {
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAddIncome, setShowAddIncome] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [dailyBudget, setDailyBudget] = useState(() =>
+    parseFloat(localStorage.getItem('dailyBudget') ?? '75')
+  )
+  const [editingDaily, setEditingDaily] = useState(false)
+  const [dailyDraft, setDailyDraft] = useState('')
+
+  function startEditDaily() {
+    setDailyDraft(String(dailyBudget))
+    setEditingDaily(true)
+  }
+
+  function commitDaily() {
+    const val = parseFloat(dailyDraft)
+    if (!isNaN(val) && val > 0) {
+      localStorage.setItem('dailyBudget', String(val))
+      setDailyBudget(val)
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
+    }
+    setEditingDaily(false)
+  }
 
   const { data: waterfall, isLoading: wLoading } = useQuery({
-    queryKey: ['waterfall', month],
-    queryFn: () => api.waterfall(month),
+    queryKey: ['waterfall', month, dailyBudget],
+    queryFn: () => api.waterfall(month, dailyBudget),
   })
 
   const { data: accounts, isLoading: aLoading } = useQuery({
@@ -1535,10 +1555,31 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-8">
             <div className="text-center">
-              <div className="text-2xl font-bold font-mono text-white">
-                {fmt(w.daily_allowance_fixed)}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">fixed / day</div>
+              {editingDaily ? (
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  value={dailyDraft}
+                  autoFocus
+                  onChange={e => setDailyDraft(e.target.value)}
+                  onBlur={commitDaily}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') commitDaily()
+                    if (e.key === 'Escape') setEditingDaily(false)
+                  }}
+                  className="w-24 bg-gray-800 border border-indigo-500 rounded-lg px-2 py-1 text-2xl font-bold font-mono text-white text-center focus:outline-none"
+                />
+              ) : (
+                <div
+                  className="text-2xl font-bold font-mono text-white cursor-pointer hover:text-indigo-300 transition-colors"
+                  onClick={startEditDaily}
+                  title="Click to edit daily budget"
+                >
+                  {fmt(w.daily_allowance_fixed)}
+                </div>
+              )}
+              <div className="text-xs text-gray-500 mt-1">budget / day <span className="text-gray-700">(click)</span></div>
             </div>
             <div className="w-px bg-gray-800" />
             {w.days_left > 0 ? (
@@ -1561,6 +1602,40 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Pace insight */}
+        {w.days_left > 0 && w.remaining > 0 && (() => {
+          const dynamic = w.daily_allowance_dynamic
+          const configured = dailyBudget
+          if (dynamic > configured) {
+            const excess = w.remaining - configured * w.days_left
+            return (
+              <div className="mt-4 pt-4 border-t border-gray-800/60 flex items-center gap-2">
+                <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Ahead</span>
+                <span className="text-xs text-gray-400">
+                  Spend <span className="text-white font-mono">{fmt(excess)}</span> more today to come back to <span className="text-white font-mono">{fmt(configured)}/day</span> pace.
+                </span>
+              </div>
+            )
+          }
+          if (dynamic < configured) {
+            const zeroDays = Math.ceil(w.days_left - w.remaining / configured)
+            const dayWord = zeroDays === 1 ? 'day' : 'days'
+            return (
+              <div className="mt-4 pt-4 border-t border-gray-800/60 flex items-center gap-2">
+                <span className="text-xs font-medium text-amber-400 uppercase tracking-wider">Behind</span>
+                <span className="text-xs text-gray-400">
+                  <span className="text-white font-mono">{zeroDays}</span> zero-spend {dayWord} to recover to <span className="text-white font-mono">{fmt(configured)}/day</span> pace.
+                </span>
+              </div>
+            )
+          }
+          return (
+            <div className="mt-4 pt-4 border-t border-gray-800/60">
+              <span className="text-xs text-emerald-400">On pace</span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Waterfall */}

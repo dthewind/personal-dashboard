@@ -445,8 +445,8 @@ def get_merchant_stats(db: Session) -> list[dict]:
 
 # ── Waterfall ──────────────────────────────────────────────────────────────────
 
-def get_waterfall(db: Session, pay_month: datetime.date) -> WaterfallOut:
-    DAILY_FIXED = Decimal("75")
+def get_waterfall(db: Session, pay_month: datetime.date, daily_budget: Decimal = Decimal("75")) -> WaterfallOut:
+    DAILY_FIXED = daily_budget
 
     gross = db.scalar(
         select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(

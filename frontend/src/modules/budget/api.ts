@@ -72,8 +72,13 @@ export const api = {
   merchants: (q: string) =>
     req<Merchant[]>(`/merchants?q=${encodeURIComponent(q)}`),
 
-  waterfall: (month?: string) =>
-    req<WaterfallData>(`/waterfall${month ? '?month=' + month : ''}`),
+  waterfall: (month?: string, dailyBudget?: number) => {
+    const p = new URLSearchParams()
+    if (month) p.set('month', month)
+    if (dailyBudget != null && dailyBudget !== 75) p.set('daily_budget', String(dailyBudget))
+    const q = p.toString()
+    return req<WaterfallData>(`/waterfall${q ? '?' + q : ''}`)
+  },
 
   bills: {
     list: () => req<FixedBill[]>('/bills'),

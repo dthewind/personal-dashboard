@@ -1,6 +1,8 @@
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -165,9 +167,9 @@ def list_merchants(q: str = "", db: Session = Depends(get_db)):
 # ── Dashboard ──────────────────────────────────────────────────────────────────
 
 @router.get("/waterfall", response_model=WaterfallOut)
-def get_waterfall(month: datetime.date | None = None, db: Session = Depends(get_db)):
+def get_waterfall(month: datetime.date | None = None, daily_budget: float = Query(default=75.0), db: Session = Depends(get_db)):
     pay_month = month or datetime.date.today().replace(day=1)
-    return crud.get_waterfall(db, pay_month)
+    return crud.get_waterfall(db, pay_month, Decimal(str(daily_budget)))
 
 
 # ── Fixed Bills ────────────────────────────────────────────────────────────────
