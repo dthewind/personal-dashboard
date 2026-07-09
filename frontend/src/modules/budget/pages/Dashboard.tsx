@@ -3,7 +3,7 @@ import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
-import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
+import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntry, LedgerEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
 
@@ -31,37 +31,38 @@ function MonthNav({ month, onChange }: { month: string; onChange: (m: string) =>
 
 // ── Waterfall table ───────────────────────────────────────────────────────────
 
+type DrilldownKey = 'income' | 'bills' | 'spent' | null
+
 function WRow({
   label,
   amount,
   isTotal,
   indent,
   color,
+  expandKey,
+  expanded,
+  onToggle,
 }: {
   label: string
   amount: number
   isTotal?: boolean
   indent?: boolean
   color?: 'green' | 'red' | 'white'
+  expandKey?: DrilldownKey
+  expanded?: boolean
+  onToggle?: () => void
 }) {
   const textColor =
-    color === 'green'
-      ? 'text-emerald-400'
-      : color === 'red'
-      ? 'text-red-400'
-      : 'text-white'
+    color === 'green' ? 'text-emerald-400' : color === 'red' ? 'text-red-400' : 'text-white'
+  const clickable = !!onToggle
   return (
     <div
-      className={`flex justify-between items-center py-1.5 ${
-        isTotal ? 'border-t border-gray-700 mt-1 pt-2.5' : ''
-      }`}
+      className={`flex justify-between items-center py-1.5 ${isTotal ? 'border-t border-gray-700 mt-1 pt-2.5' : ''} ${clickable ? 'cursor-pointer hover:bg-gray-800/40 -mx-2 px-2 rounded' : ''} ${expanded ? 'bg-gray-800/40 -mx-2 px-2 rounded' : ''}`}
+      onClick={onToggle}
     >
-      <span
-        className={`text-sm ${
-          indent ? 'pl-4 text-gray-400' : isTotal ? 'font-semibold text-white' : 'text-gray-300'
-        }`}
-      >
+      <span className={`text-sm ${indent ? 'pl-4 text-gray-400' : isTotal ? 'font-semibold text-white' : 'text-gray-300'}`}>
         {indent ? '─ ' : ''}{label}
+        {expandKey && <span className="ml-1.5 text-gray-600 text-xs">{expanded ? '▼' : '▶'}</span>}
       </span>
       <span className={`text-sm font-mono ${isTotal ? 'font-semibold' : ''} ${textColor}`}>
         {color === 'red' ? `(${fmt(amount)})` : fmt(amount)}
@@ -70,28 +71,77 @@ function WRow({
   )
 }
 
-function Waterfall({ w }: { w: WaterfallData }) {
+function WaterfallDrilldown({
+  entries,
+  accounts,
+  emptyText,
+}: {
+  entries: LedgerEntry[]
+  accounts: Account[]
+  emptyText: string
+}) {
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+  if (entries.length === 0) {
+    return <div className="py-2 pl-4 text-xs text-gray-600">{emptyText}</div>
+  }
+  return (
+    <div className="ml-4 mb-1 max-h-56 overflow-y-auto border-l border-gray-800">
+      {entries.map(e => (
+        <div key={e.id} className="flex items-center justify-between py-1 pl-3 pr-1 hover:bg-gray-800/30 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-gray-600 shrink-0">{e.date.slice(5)}</span>
+            <span className="text-gray-300 truncate">{e.merchant ?? e.notes ?? '—'}</span>
+            <span className="text-gray-600 shrink-0">{accountMap[e.account_id] ?? '—'}</span>
+          </div>
+          <span className="font-mono text-gray-300 shrink-0 ml-3">{fmt(e.amount)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Waterfall({ w, month, monthEnd, accounts }: { w: WaterfallData; month: string; monthEnd: string; accounts: Account[] }) {
+  const [expanded, setExpanded] = useState<DrilldownKey>(null)
+
+  const { data: allExpenses } = useQuery({
+    queryKey: ['ledger', 'expense', month, monthEnd],
+    queryFn: () => api.ledger.list({ start: month, end: monthEnd, type: 'expense' }),
+    enabled: expanded === 'spent' || expanded === 'bills',
+  })
+
+  const { data: incomeEntries } = useQuery({
+    queryKey: ['ledger', 'income', month],
+    queryFn: () => api.ledger.list({ start: month, end: monthEnd, type: 'income' }),
+    enabled: expanded === 'income',
+  })
+
+  function toggle(key: DrilldownKey) {
+    setExpanded(prev => prev === key ? null : key)
+  }
+
+  const variableExpenses = (allExpenses ?? []).filter(e => !e.bill_id)
+  const billExpenses = (allExpenses ?? []).filter(e => !!e.bill_id)
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-        Waterfall
-      </h2>
-      <WRow label="Gross Income" amount={w.gross_income} color="green" />
+      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Waterfall</h2>
+      <WRow label="Gross Income" amount={w.gross_income} color="green"
+        expandKey="income" expanded={expanded === 'income'} onToggle={() => toggle('income')} />
+      {expanded === 'income' && <WaterfallDrilldown entries={incomeEntries ?? []} accounts={accounts} emptyText="No income entries this month." />}
       <WRow label="Federal Tax" amount={w.fed_tax} indent color="red" />
       <WRow label="State Tax" amount={w.state_tax} indent color="red" />
       <WRow label="SEP Contribution" amount={w.sep_contribution} indent color="red" />
       <WRow label="Net Income" amount={w.net_income} isTotal />
       <WRow label="Roth IRA" amount={w.roth_contribution} indent color="red" />
       <WRow label="After Savings" amount={w.after_save} isTotal />
-      <WRow label="Fixed Bills" amount={w.fixed_bills_total} indent color="red" />
+      <WRow label="Fixed Bills" amount={w.fixed_bills_total} indent color="red"
+        expandKey="bills" expanded={expanded === 'bills'} onToggle={() => toggle('bills')} />
+      {expanded === 'bills' && <WaterfallDrilldown entries={billExpenses} accounts={accounts} emptyText="No bill payments this month." />}
       <WRow label="Max Spend" amount={w.max_spend} isTotal />
-      <WRow label="Spent to Date" amount={w.spent_to_date} indent color="red" />
-      <WRow
-        label="Remaining"
-        amount={w.remaining}
-        isTotal
-        color={w.remaining < 0 ? 'red' : 'green'}
-      />
+      <WRow label="Spent to Date" amount={w.spent_to_date} indent color="red"
+        expandKey="spent" expanded={expanded === 'spent'} onToggle={() => toggle('spent')} />
+      {expanded === 'spent' && <WaterfallDrilldown entries={variableExpenses} accounts={accounts} emptyText="No variable expenses this month." />}
+      <WRow label="Remaining" amount={w.remaining} isTotal color={w.remaining < 0 ? 'red' : 'green'} />
     </div>
   )
 }
@@ -1218,7 +1268,7 @@ export default function Dashboard() {
       </div>
 
       {/* Waterfall */}
-      <Waterfall w={w} />
+      <Waterfall w={w} month={month} monthEnd={monthEnd} accounts={allAccounts} />
 
       {/* Accounts */}
       <div className="space-y-3">
