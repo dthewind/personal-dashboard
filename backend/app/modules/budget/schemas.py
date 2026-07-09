@@ -448,3 +448,39 @@ class PromoAprWindowOut(BaseModel):
     purchase_date: datetime.date
     original_amount: DecimalJSON | None
     required_monthly_payment: DecimalJSON | None
+
+
+# ── Reward Rules ───────────────────────────────────────────────────────────────
+
+class RewardRuleCreate(BaseModel):
+    account_id: str
+    category: str
+    rate: Decimal
+    is_rotating: bool = False
+    promo_start_date: datetime.date | None = None
+    promo_end_date: datetime.date | None = None
+    spending_cap: Decimal | None = None
+    amount_used: Decimal = Decimal("0")
+
+
+class RewardRuleUpdate(BaseModel):
+    category: str | None = None
+    rate: Decimal | None = None
+    is_rotating: bool | None = None
+    promo_start_date: datetime.date | None = None
+    promo_end_date: datetime.date | None = None
+    spending_cap: Decimal | None = None
+    amount_used: Decimal | None = None
+
+
+class RewardRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    account_id: str
+    category: str
+    rate: DecimalJSON
+    is_rotating: bool
+    promo_start_date: datetime.date | None
+    promo_end_date: datetime.date | None
+    spending_cap: DecimalJSON | None
+    amount_used: DecimalJSON

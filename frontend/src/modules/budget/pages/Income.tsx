@@ -9,6 +9,7 @@ import type {
   IncomePeriod, IncomePeriodCreate,
   LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate,
   IncomeType,
+  MonthlySummary,
 } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
@@ -742,6 +743,49 @@ function DeductionsSection({ month }: { month: string }) {
   )
 }
 
+// ── SEP-IRA Headroom ──────────────────────────────────────────────────────────
+
+const SEP_CAP_2025 = 69000
+
+function SEPHeadroomWidget({ annualData }: { annualData: MonthlySummary[] }) {
+  const ytdSep = annualData.reduce((s, m) => s + m.sep_contribution, 0)
+  const remaining = SEP_CAP_2025 - ytdSep
+  const pct = Math.min((ytdSep / SEP_CAP_2025) * 100, 100)
+
+  const barColor = pct >= 90 ? 'bg-emerald-500' : pct >= 50 ? 'bg-indigo-500' : 'bg-gray-600'
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">SEP-IRA Headroom</h2>
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <div className="text-xs text-gray-500">Cap (2025)</div>
+          <div className="text-white font-mono text-sm mt-0.5">{fmt(SEP_CAP_2025)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Contributed YTD</div>
+          <div className="text-indigo-400 font-mono text-sm mt-0.5">{fmt(ytdSep)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Remaining</div>
+          <div className={`font-mono text-sm mt-0.5 ${remaining > 0 ? 'text-emerald-400' : 'text-gray-500'}`}>
+            {fmt(Math.max(remaining, 0))}
+          </div>
+        </div>
+      </div>
+      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="text-xs text-gray-500 mt-1.5">{Math.round(pct)}% of annual cap used</div>
+      {remaining > 0 && (
+        <div className="mt-2 text-xs text-gray-600">
+          Every {fmt(1000)} contributed → ~{fmt(Math.round(1000 * 0.37))} saved in federal taxes (37% bracket est.)
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Summary row ───────────────────────────────────────────────────────────────
 
 function SummarySection({ month }: { month: string }) {
@@ -814,6 +858,11 @@ export default function IncomePage() {
     queryFn: () => api.accounts.list(),
   })
 
+  const { data: annualData = [] } = useQuery({
+    queryKey: ['annual-summary'],
+    queryFn: () => api.annualSummary(),
+  })
+
   return (
     <PageShell>
       <div className="flex justify-end">
@@ -823,6 +872,7 @@ export default function IncomePage() {
       <WorkPeriodCard month={month} />
       <IncomeEntriesSection month={month} accounts={accounts} />
       <DeductionsSection month={month} />
+      {annualData.length > 0 && <SEPHeadroomWidget annualData={annualData} />}
       <SummarySection month={month} />
     </PageShell>
   )

@@ -5,7 +5,9 @@ import type {
   IncomePeriod, IncomePeriodCreate, IncomePeriodUpdate,
   LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate,
   Merchant,
+  MonthlySummary,
   PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate,
+  RewardRule, RewardRuleCreate, RewardRuleUpdate,
   WaterfallData,
 } from './types'
 
@@ -133,5 +135,22 @@ export const api = {
     update: (id: string, data: PromoAprWindowUpdate) =>
       req<PromoAprWindow>(`/promo-windows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/promo-windows/${id}`, { method: 'DELETE' }),
+  },
+
+  rewardRules: {
+    list: (account_id?: string) => {
+      const q = account_id ? `?account_id=${account_id}` : ''
+      return req<RewardRule[]>(`/reward-rules${q}`)
+    },
+    create: (data: RewardRuleCreate) =>
+      req<RewardRule>('/reward-rules', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: RewardRuleUpdate) =>
+      req<RewardRule>(`/reward-rules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/reward-rules/${id}`, { method: 'DELETE' }),
+  },
+
+  annualSummary: (year?: number) => {
+    const q = year ? `?year=${year}` : ''
+    return req<MonthlySummary[]>(`/annual-summary${q}`)
   },
 }

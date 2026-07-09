@@ -339,3 +339,46 @@ export interface PromoAprWindowUpdate {
   original_amount?: number | null
   required_monthly_payment?: number | null
 }
+
+export interface RewardRule {
+  id: string
+  account_id: string
+  category: string
+  rate: number
+  is_rotating: boolean
+  promo_start_date: string | null
+  promo_end_date: string | null
+  spending_cap: number | null
+  amount_used: number
+}
+
+export interface RewardRuleCreate {
+  account_id: string
+  category: string
+  rate: number
+  is_rotating?: boolean
+  promo_start_date?: string | null
+  promo_end_date?: string | null
+  spending_cap?: number | null
+  amount_used?: number
+}
+
+export interface RewardRuleUpdate {
+  category?: string
+  rate?: number
+  is_rotating?: boolean
+  promo_start_date?: string | null
+  promo_end_date?: string | null
+  spending_cap?: number | null
+  amount_used?: number
+}
+
+export interface MonthlySummary {
+  month: string
+  gross_income: number
+  net_income: number
+  total_spend: number
+  sep_contribution: number
+  roth_contribution: number
+  savings_rate: number
+}

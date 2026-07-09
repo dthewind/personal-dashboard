@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { TransactionTag } from '../types'
 import { todayStr } from '../utils'
 import Typeahead from '../components/Typeahead'
+import CardPickerModal from '../components/CardPickerModal'
 
 const TAGS: { value: TransactionTag; label: string }[] = [
   { value: 'variable', label: 'Variable' },
@@ -16,6 +17,7 @@ export default function QuickAdd() {
   const amountRef = useRef<HTMLInputElement>(null)
 
   const [amount, setAmount] = useState('')
+  const [showCardPicker, setShowCardPicker] = useState(false)
   const [accountId, setAccountId] = useState('')
   const [date, setDate] = useState(todayStr())
   const [merchant, setMerchant] = useState('')
@@ -103,6 +105,7 @@ export default function QuickAdd() {
 
   return (
     <div className="max-w-lg mx-auto">
+      {showCardPicker && <CardPickerModal onClose={() => setShowCardPicker(false)} />}
       {success && (
         <div className="mb-4 px-4 py-3 bg-emerald-950 border border-emerald-800 rounded-xl text-emerald-400 text-sm">
           Transaction saved ✓
@@ -248,14 +251,23 @@ export default function QuickAdd() {
           />
         </div>
 
-        {/* Submit */}
-        <button
-          onClick={() => mutation.mutate()}
-          disabled={!canSubmit || mutation.isPending}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl py-3.5 transition-colors text-base"
-        >
-          {mutation.isPending ? 'Saving…' : 'Add Transaction'}
-        </button>
+        {/* Submit row */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowCardPicker(true)}
+            title="Card Picker — find the best card for this category"
+            className="px-4 py-3.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-xl transition-colors text-sm font-medium shrink-0"
+          >
+            Best card
+          </button>
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={!canSubmit || mutation.isPending}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl py-3.5 transition-colors text-base"
+          >
+            {mutation.isPending ? 'Saving…' : 'Add Transaction'}
+          </button>
+        </div>
       </div>
     </div>
   )

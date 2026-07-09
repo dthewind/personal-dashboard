@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -443,6 +443,136 @@ function PayModal({
   )
 }
 
+// ── Subscription Leak Detector ────────────────────────────────────────────────
+
+function sixMonthsAgo(): string {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 6)
+  return d.toISOString().slice(0, 10)
+}
+
+function SubscriptionLeaks({ bills }: { bills: FixedBill[] }) {
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const qc = useQueryClient()
+
+  const { data: recentExpenses = [] } = useQuery({
+    queryKey: ['ledger', 'expense', 'leak-scan', sixMonthsAgo()],
+    queryFn: () => api.ledger.list({ start: sixMonthsAgo(), type: 'expense' }),
+  })
+
+  const addMutation = useMutation({
+    mutationFn: (data: FixedBillCreate) => api.bills.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['bills'] }) },
+  })
+
+  const leaks = useMemo(() => {
+    if (recentExpenses.length === 0 || bills.length === 0) return []
+
+    // Track which months each merchant appears in
+    const merchantMonths: Record<string, Set<string>> = {}
+    const merchantAmounts: Record<string, number[]> = {}
+    const merchantLastDate: Record<string, string> = {}
+    const merchantAccountId: Record<string, string> = {}
+
+    for (const e of recentExpenses) {
+      const m = e.merchant ?? e.notes ?? ''
+      if (!m) continue
+      const month = e.date.slice(0, 7)
+      merchantMonths[m] = merchantMonths[m] ?? new Set()
+      merchantMonths[m].add(month)
+      merchantAmounts[m] = merchantAmounts[m] ?? []
+      merchantAmounts[m].push(e.amount)
+      if (!merchantLastDate[m] || e.date > merchantLastDate[m]) {
+        merchantLastDate[m] = e.date
+        merchantAccountId[m] = e.account_id
+      }
+    }
+
+    // Build set of bill names/merchants to exclude
+    const billMerchants = new Set(
+      bills.flatMap(b => [b.name.toLowerCase(), b.merchant?.toLowerCase()].filter(Boolean))
+    )
+
+    return Object.entries(merchantMonths)
+      .filter(([name, months]) => {
+        if (months.size < 3) return false
+        if (dismissed.has(name)) return false
+        if (billMerchants.has(name.toLowerCase())) return false
+        return true
+      })
+      .map(([name, months]) => {
+        const amounts = merchantAmounts[name]
+        const avgAmount = amounts.reduce((s, v) => s + v, 0) / amounts.length
+        const ytdTotal = amounts.reduce((s, v) => s + v, 0)
+        return {
+          name,
+          monthCount: months.size,
+          avgAmount,
+          ytdTotal,
+          lastDate: merchantLastDate[name],
+          accountId: merchantAccountId[name],
+        }
+      })
+      .sort((a, b) => b.ytdTotal - a.ytdTotal)
+      .slice(0, 8)
+  }, [recentExpenses, bills, dismissed])
+
+  if (leaks.length === 0) return null
+
+  return (
+    <div className="bg-gray-900 border border-amber-800/30 rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="text-xs font-medium text-amber-400 uppercase tracking-wider">Untracked Recurring</h2>
+        <span className="text-xs text-gray-600">{leaks.length} potential subscriptions</span>
+      </div>
+      <p className="text-xs text-gray-600 mb-4">Merchants appearing in ≥3 of the last 6 months, not in your fixed bills list.</p>
+
+      <div className="space-y-2">
+        {leaks.map(leak => (
+          <div key={leak.name} className="flex items-center justify-between bg-gray-800/60 rounded-lg px-3 py-2.5 gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-gray-200 truncate">{leak.name}</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {leak.monthCount} months · ~{fmt(leak.avgAmount)}/mo · {fmt(leak.ytdTotal)} YTD
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  addMutation.mutate({
+                    name: leak.name,
+                    account_id: leak.accountId,
+                    due_day: 1,
+                    expected_amount: Math.round(leak.avgAmount * 100) / 100,
+                    is_estimated: true,
+                    merchant: leak.name,
+                  })
+                  setDismissed(prev => new Set([...prev, leak.name]))
+                }}
+                className="text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded bg-indigo-950/30 hover:bg-indigo-950/50 transition-colors"
+              >
+                + Add to bills
+              </button>
+              <button
+                onClick={() => setDismissed(prev => new Set([...prev, leak.name]))}
+                className="text-xs text-gray-600 hover:text-gray-400 px-1"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {leaks.length > 0 && (
+        <div className="mt-3 text-xs text-gray-600">
+          Total untracked: ~{fmt(leaks.reduce((s, l) => s + l.avgAmount, 0))}/mo
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Bills() {
   const qc = useQueryClient()
   const [month, setMonth] = useState(currentMonthStr)
@@ -714,6 +844,9 @@ export default function Bills() {
           )
         })}
       </div>
+
+      {/* Subscription leak detector */}
+      <SubscriptionLeaks bills={bills ?? []} />
 
       {/* Inactive bills */}
       {inactive.length > 0 && (

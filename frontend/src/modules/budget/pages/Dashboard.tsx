@@ -3,7 +3,7 @@ import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
-import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntry, LedgerEntryCreate, IncomeType, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
+import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntry, LedgerEntryCreate, IncomeType, MonthlySummary, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
 
@@ -1189,6 +1189,251 @@ function DueSoonStrip({ accounts }: { accounts: Account[] }) {
   )
 }
 
+// ── Savings Rate widget ───────────────────────────────────────────────────────
+
+function SavingsRateWidget({ annualData }: { annualData: MonthlySummary[] }) {
+  const today = new Date()
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const current = annualData.find(m => m.month === currentMonthKey)
+  const rolling = annualData.length > 0
+    ? annualData.reduce((s, m) => s + m.savings_rate, 0) / annualData.length
+    : null
+
+  const currentRate = current?.savings_rate ?? null
+  const rateColor = (r: number) =>
+    r >= 50 ? 'text-emerald-400' : r >= 30 ? 'text-amber-400' : 'text-red-400'
+
+  const maxAbs = Math.max(...annualData.map(m => Math.abs(m.savings_rate)), 1)
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">Savings Rate</h2>
+
+      <div className="flex items-end gap-6 mb-4">
+        <div>
+          <div className="text-xs text-gray-500 mb-1">This Month</div>
+          <div className={`text-3xl font-bold font-mono ${currentRate != null ? rateColor(currentRate) : 'text-gray-600'}`}>
+            {currentRate != null ? `${currentRate.toFixed(1)}%` : '—'}
+          </div>
+        </div>
+        {rolling != null && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1">YTD avg</div>
+            <div className={`text-xl font-bold font-mono ${rateColor(rolling)}`}>
+              {rolling.toFixed(1)}%
+            </div>
+          </div>
+        )}
+      </div>
+
+      {annualData.length > 0 && (
+        <div className="flex items-end gap-1 h-10">
+          {annualData.map(m => {
+            const pct = (Math.abs(m.savings_rate) / maxAbs) * 100
+            const isPos = m.savings_rate >= 0
+            const isCurrent = m.month === currentMonthKey
+            return (
+              <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5" title={`${m.month}: ${m.savings_rate.toFixed(1)}%`}>
+                <div
+                  className={`w-full rounded-sm transition-all ${
+                    isPos ? (isCurrent ? 'bg-emerald-400' : 'bg-emerald-700/60') : 'bg-red-600/60'
+                  }`}
+                  style={{ height: `${Math.max(pct, 4)}%` }}
+                />
+                <div className="text-gray-700 text-[9px] leading-none">
+                  {m.month.slice(5)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="mt-3 flex gap-4 text-xs text-gray-600">
+        <span className="text-emerald-700">≥50% = on track for early FIRE</span>
+        <span className="text-amber-700">30–49% = good</span>
+        <span className="text-red-700">&lt;30% = build more runway</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Income Runway widget ──────────────────────────────────────────────────────
+
+function IncomeRunwayWidget({
+  accounts,
+  fixedBillsTotal,
+  annualData,
+}: {
+  accounts: Account[]
+  fixedBillsTotal: number
+  annualData: MonthlySummary[]
+}) {
+  const liquidAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const liquidAssets = liquidAccounts.reduce((s, a) => s + a.current_balance, 0)
+
+  // 3-month avg variable spend from recent months
+  const recent = annualData.slice(-3)
+  const avgVariableSpend = recent.length > 0
+    ? recent.reduce((s, m) => s + m.total_spend - fixedBillsTotal, 0) / recent.length
+    : 0
+
+  const monthlyBurn = fixedBillsTotal + Math.max(avgVariableSpend, 0)
+  const runway = monthlyBurn > 0 ? liquidAssets / monthlyBurn : null
+
+  const runwayColor = runway == null ? 'text-gray-500'
+    : runway < 3 ? 'text-red-400'
+    : runway < 6 ? 'text-amber-400'
+    : 'text-emerald-400'
+
+  const barPct = runway != null ? Math.min((runway / 12) * 100, 100) : 0
+  const barColor = runway == null ? 'bg-gray-700'
+    : runway < 3 ? 'bg-red-500'
+    : runway < 6 ? 'bg-amber-500'
+    : 'bg-emerald-500'
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Income Runway</h2>
+      <div className="flex items-baseline gap-3 mb-3">
+        <div className={`text-3xl font-bold font-mono ${runwayColor}`}>
+          {runway != null ? `${runway.toFixed(1)} mo` : '—'}
+        </div>
+        <div className="text-xs text-gray-500">without income</div>
+      </div>
+
+      <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden mb-3">
+        <div className={`absolute left-0 top-0 h-full rounded-full ${barColor}`} style={{ width: `${barPct}%` }} />
+        {/* 3-month and 6-month markers */}
+        <div className="absolute top-0 h-full w-px bg-amber-600/50" style={{ left: `${(3/12)*100}%` }} />
+        <div className="absolute top-0 h-full w-px bg-emerald-600/50" style={{ left: `${(6/12)*100}%` }} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs text-gray-500">
+        <div><span className="text-gray-300 font-mono">{fmt(liquidAssets)}</span><br/>liquid</div>
+        <div><span className="text-gray-300 font-mono">{fmt(monthlyBurn)}</span><br/>monthly burn</div>
+        <div>
+          <span className="text-amber-500">3mo</span> <span className="text-emerald-500">6mo</span> targets
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 30-day Cashflow Forecast ──────────────────────────────────────────────────
+
+interface ForecastItem {
+  date: string
+  label: string
+  amount: number
+  type: 'bill' | 'income'
+}
+
+function CashflowForecast({ accounts }: { accounts: Account[] }) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const { data: bills = [] } = useQuery({
+    queryKey: ['bills'],
+    queryFn: () => api.bills.list(),
+  })
+
+  const checkingAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+  const checkingBalance = checkingAccounts.reduce((s, a) => s + a.current_balance, 0)
+
+  const creditCards = accounts.filter(a => a.type === 'credit_card')
+
+  const items = useMemo((): ForecastItem[] => {
+    const result: ForecastItem[] = []
+    const horizon = new Date(today)
+    horizon.setDate(horizon.getDate() + 30)
+
+    for (const bill of bills) {
+      if (!bill.is_active) continue
+      // Find next occurrence within 30 days
+      for (let mo = 0; mo <= 1; mo++) {
+        const d = new Date(today.getFullYear(), today.getMonth() + mo, bill.due_day)
+        if (d >= today && d <= horizon) {
+          result.push({
+            date: d.toISOString().slice(0, 10),
+            label: bill.name,
+            amount: -bill.expected_amount,
+            type: 'bill',
+          })
+        }
+      }
+    }
+
+    // CC payments due
+    for (const cc of creditCards) {
+      if (!cc.due_day || cc.current_balance <= 0) continue
+      for (let mo = 0; mo <= 1; mo++) {
+        const d = new Date(today.getFullYear(), today.getMonth() + mo, cc.due_day)
+        if (d >= today && d <= horizon) {
+          result.push({
+            date: d.toISOString().slice(0, 10),
+            label: `${cc.name} payment`,
+            amount: -cc.current_balance,
+            type: 'bill',
+          })
+        }
+      }
+    }
+
+    return result.sort((a, b) => a.date.localeCompare(b.date))
+  }, [bills, accounts, today])
+
+  const totalOutflow = items.filter(i => i.amount < 0).reduce((s, i) => s + i.amount, 0)
+  const projectedBalance = checkingBalance + totalOutflow
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">Next 30 Days</h2>
+
+      <div className="flex gap-6 mb-4">
+        <div>
+          <div className="text-xs text-gray-500 mb-0.5">Bills due</div>
+          <div className="text-lg font-bold font-mono text-red-400">{fmt(Math.abs(totalOutflow))}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-0.5">Projected cash</div>
+          <div className={`text-lg font-bold font-mono ${projectedBalance < 1000 ? 'text-red-400' : projectedBalance < 2000 ? 'text-amber-400' : 'text-emerald-400'}`}>
+            {fmt(projectedBalance)}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+        {items.map((item, i) => {
+          const d = new Date(item.date + 'T12:00:00')
+          const daysOut = Math.round((d.getTime() - today.getTime()) / 86400000)
+          return (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-gray-600 text-xs w-8 shrink-0">
+                  {daysOut === 0 ? 'today' : `${daysOut}d`}
+                </span>
+                <span className="text-gray-300 truncate">{item.label}</span>
+              </div>
+              <span className={`font-mono text-xs shrink-0 ml-2 ${item.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                {item.amount < 0 ? `(${fmt(Math.abs(item.amount))})` : fmt(item.amount)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {projectedBalance < 1000 && (
+        <div className="mt-3 text-xs text-red-400 bg-red-950/30 rounded-lg px-3 py-2">
+          Projected balance drops below $1,000 — consider transferring funds.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -1217,6 +1462,11 @@ export default function Dashboard() {
   const { data: income } = useQuery({
     queryKey: ['ledger', 'income', month],
     queryFn: () => api.ledger.list({ start: month, end: monthEnd, type: 'income' }),
+  })
+
+  const { data: annualData = [] } = useQuery({
+    queryKey: ['annual-summary'],
+    queryFn: () => api.annualSummary(),
   })
 
   const addAccountMutation = useMutation({
@@ -1315,6 +1565,21 @@ export default function Dashboard() {
 
       {/* Waterfall */}
       <Waterfall w={w} month={month} monthEnd={monthEnd} accounts={allAccounts} />
+
+      {/* FIRE widgets row */}
+      {annualData.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SavingsRateWidget annualData={annualData} />
+          <IncomeRunwayWidget
+            accounts={allAccounts}
+            fixedBillsTotal={w.fixed_bills_total}
+            annualData={annualData}
+          />
+        </div>
+      )}
+
+      {/* 30-day Forecast */}
+      <CashflowForecast accounts={allAccounts} />
 
       {/* Accounts */}
       <div className="space-y-3">

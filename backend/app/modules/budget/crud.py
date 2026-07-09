@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Account, AccountCredit, Allocation, CategoryRule, FixedBill,
-    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, Transaction, Transfer,
+    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
@@ -18,6 +18,7 @@ from .schemas import (
     IncomePeriodCreate, IncomePeriodUpdate,
     LedgerEntryCreate, LedgerEntryUpdate, LedgerBulkCreate, TransferPairCreate,
     PromoAprWindowCreate, PromoAprWindowUpdate,
+    RewardRuleCreate, RewardRuleUpdate,
     WaterfallOut,
 )
 
@@ -734,3 +735,76 @@ def delete_promo_window(db: Session, window_id: str) -> bool:
     db.delete(window)
     db.commit()
     return True
+
+
+# ── Reward Rules ───────────────────────────────────────────────────────────────
+
+def get_reward_rules(db: Session, account_id: str | None = None) -> list:
+    q = select(RewardRule)
+    if account_id:
+        q = q.where(RewardRule.account_id == account_id)
+    return list(db.scalars(q.order_by(RewardRule.account_id, RewardRule.category)).all())
+
+
+def create_reward_rule(db: Session, data: RewardRuleCreate) -> RewardRule:
+    from uuid import uuid4
+    rule = RewardRule(
+        id=str(uuid4()),
+        account_id=data.account_id,
+        category=data.category,
+        rate=data.rate,
+        is_rotating=data.is_rotating,
+        promo_start_date=data.promo_start_date,
+        promo_end_date=data.promo_end_date,
+        spending_cap=data.spending_cap,
+        amount_used=data.amount_used,
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+
+def update_reward_rule(db: Session, rule_id: str, data: RewardRuleUpdate) -> RewardRule | None:
+    rule = db.get(RewardRule, rule_id)
+    if not rule:
+        return None
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(rule, k, v)
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+
+def delete_reward_rule(db: Session, rule_id: str) -> bool:
+    rule = db.get(RewardRule, rule_id)
+    if not rule:
+        return False
+    db.delete(rule)
+    db.commit()
+    return True
+
+
+# ── Annual Summary ─────────────────────────────────────────────────────────────
+
+def get_annual_summary(db: Session, year: int) -> list[dict]:
+    today = datetime.date.today()
+    result = []
+    for mo in range(1, 13):
+        month = datetime.date(year, mo, 1)
+        if month > today.replace(day=1):
+            break
+        w = get_waterfall(db, month)
+        total_spend = float(w.spent_to_date + w.fixed_bills_total)
+        net = float(w.net_income)
+        savings_rate = round((net - total_spend) / net * 100, 1) if net > 0 else 0.0
+        result.append({
+            "month": f"{year}-{mo:02d}",
+            "gross_income": float(w.gross_income),
+            "net_income": net,
+            "total_spend": total_spend,
+            "sep_contribution": float(w.sep_contribution),
+            "roth_contribution": float(w.roth_contribution),
+            "savings_rate": savings_rate,
+        })
+    return result

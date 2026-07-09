@@ -14,6 +14,7 @@ from .schemas import (
     LedgerBulkCreate, LedgerEntryCreate, LedgerEntryOut, LedgerEntryUpdate,
     MerchantOut,
     PromoAprWindowCreate, PromoAprWindowOut, PromoAprWindowUpdate,
+    RewardRuleCreate, RewardRuleOut, RewardRuleUpdate,
     TransferPairCreate,
     WaterfallOut,
 )
@@ -276,3 +277,37 @@ def update_promo_window(window_id: str, data: PromoAprWindowUpdate, db: Session 
 def delete_promo_window(window_id: str, db: Session = Depends(get_db)):
     if not crud.delete_promo_window(db, window_id):
         raise HTTPException(404, "Promo window not found")
+
+
+# ── Reward Rules ───────────────────────────────────────────────────────────────
+
+@router.get("/reward-rules", response_model=list[RewardRuleOut])
+def list_reward_rules(account_id: str | None = None, db: Session = Depends(get_db)):
+    return crud.get_reward_rules(db, account_id=account_id)
+
+
+@router.post("/reward-rules", response_model=RewardRuleOut, status_code=201)
+def create_reward_rule(data: RewardRuleCreate, db: Session = Depends(get_db)):
+    return crud.create_reward_rule(db, data)
+
+
+@router.patch("/reward-rules/{rule_id}", response_model=RewardRuleOut)
+def update_reward_rule(rule_id: str, data: RewardRuleUpdate, db: Session = Depends(get_db)):
+    rule = crud.update_reward_rule(db, rule_id, data)
+    if not rule:
+        raise HTTPException(404, "Reward rule not found")
+    return rule
+
+
+@router.delete("/reward-rules/{rule_id}", status_code=204)
+def delete_reward_rule(rule_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_reward_rule(db, rule_id):
+        raise HTTPException(404, "Reward rule not found")
+
+
+# ── Annual Summary ─────────────────────────────────────────────────────────────
+
+@router.get("/annual-summary")
+def get_annual_summary(year: int | None = None, db: Session = Depends(get_db)):
+    yr = year or datetime.date.today().year
+    return crud.get_annual_summary(db, yr)
