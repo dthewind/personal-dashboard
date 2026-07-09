@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -23,3 +23,11 @@ app.include_router(budget_router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/me")
+async def me(request: Request):
+    return {
+        "user": getattr(request.state, "user", None),
+        "is_owner": getattr(request.state, "is_owner", False),
+    }
