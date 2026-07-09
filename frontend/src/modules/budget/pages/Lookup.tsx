@@ -37,13 +37,13 @@ type MerchSortKey = 'name' | 'count' | 'default_category'
 const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500'
 
 function DrilldownPanel({ filter, accounts }: { filter: { category?: string; merchant?: string }; accounts: Account[] }) {
-  const params = new URLSearchParams({ limit: '200' })
+  const params = new URLSearchParams({ type: 'expense', limit: '200' })
   if (filter.category) params.set('category', filter.category)
   if (filter.merchant) params.set('merchant', filter.merchant)
 
   const { data: txns = [], isLoading } = useQuery<Transaction[]>({
     queryKey: ['lookup-drilldown', filter],
-    queryFn: () => fetch(`/api/budget/transactions?${params}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/budget/ledger?${params}`).then(r => r.json()),
   })
 
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
