@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -9,11 +9,19 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  Legend,
 } from 'recharts'
 import { api } from '../api'
 import { fmt } from '../utils'
 import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
+
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function shortMonth(m: string): string {
+  const [yr, mo] = m.split('-')
+  return `${MONTH_SHORT[parseInt(mo) - 1]} '${yr.slice(2)}`
+}
 
 const PALETTE = [
   '#6366f1', '#8b5cf6', '#06b6d4', '#10b981',
@@ -31,12 +39,68 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { value
   )
 }
 
+function MonthlyTooltip({ active, payload, label }: {
+  active?: boolean
+  payload?: { name: string; value: number }[]
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  const income = payload.find(p => p.name === 'Income')?.value ?? 0
+  const expense = payload.find(p => p.name === 'Spent')?.value ?? 0
+  const saved = income - expense
+  const rate = income > 0 ? Math.round((saved / income) * 100) : null
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 shadow-xl space-y-1 text-xs">
+      <div className="text-gray-400 font-medium mb-1.5">{label}</div>
+      {income > 0 && (
+        <div className="flex justify-between gap-6">
+          <span className="text-emerald-400">Income</span>
+          <span className="font-mono text-white">{fmt(income)}</span>
+        </div>
+      )}
+      <div className="flex justify-between gap-6">
+        <span className="text-indigo-400">Spent</span>
+        <span className="font-mono text-white">{fmt(expense)}</span>
+      </div>
+      {income > 0 && (
+        <div className="flex justify-between gap-6 border-t border-gray-700 pt-1 mt-1">
+          <span className={saved >= 0 ? 'text-emerald-400' : 'text-red-400'}>Saved</span>
+          <span className={`font-mono ${saved >= 0 ? 'text-white' : 'text-red-400'}`}>
+            {fmt(saved)}{rate !== null ? ` (${rate}%)` : ''}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SpotlightTooltip({ active, payload, label }: {
+  active?: boolean
+  payload?: { value: number }[]
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 shadow-xl">
+      <p className="text-gray-300 text-xs mb-0.5">{label}</p>
+      <p className="text-white font-mono text-sm font-semibold">{fmt(payload[0].value)}</p>
+    </div>
+  )
+}
+
 export default function Trends() {
   const [range, setRange] = useState<DateRange>(defaultRange('this_year'))
+  const [spotlightCat, setSpotlightCat] = useState('')
 
   const { data: expenses } = useQuery({
     queryKey: ['ledger', 'expense', range.start, range.end],
     queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'expense' }),
+    enabled: !!(range.start && range.end),
+  })
+
+  const { data: incomeEntries } = useQuery({
+    queryKey: ['ledger', 'income', range.start, range.end],
+    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'income' }),
     enabled: !!(range.start && range.end),
   })
 
@@ -53,6 +117,41 @@ export default function Trends() {
   const hiddenCats = new Set((catStats ?? []).filter(c => c.exclude_from_trends).map(c => c.name))
 
   const visibleEntries = (expenses ?? []).filter(e => !hiddenCats.has(e.category ?? ''))
+
+  // Monthly overview: expense + income grouped by month
+  const monthlyData = useMemo(() => {
+    const expByMonth: Record<string, number> = {}
+    for (const e of visibleEntries) {
+      const m = e.date.slice(0, 7)
+      expByMonth[m] = (expByMonth[m] ?? 0) + e.amount
+    }
+    const incByMonth: Record<string, number> = {}
+    for (const e of incomeEntries ?? []) {
+      const m = e.date.slice(0, 7)
+      incByMonth[m] = (incByMonth[m] ?? 0) + e.amount
+    }
+    const months = new Set([...Object.keys(expByMonth), ...Object.keys(incByMonth)])
+    return Array.from(months).sort().map(m => ({
+      month: m,
+      label: shortMonth(m),
+      expense: expByMonth[m] ?? 0,
+      income: incByMonth[m] ?? 0,
+    }))
+  }, [visibleEntries, incomeEntries])
+
+  // Category spotlight: selected category spend by month
+  const spotlightData = useMemo(() => {
+    if (!spotlightCat) return []
+    const byMonth: Record<string, number> = {}
+    for (const e of visibleEntries) {
+      if ((e.category ?? '') !== spotlightCat) continue
+      const m = e.date.slice(0, 7)
+      byMonth[m] = (byMonth[m] ?? 0) + e.amount
+    }
+    return Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([m, total]) => ({ label: shortMonth(m), total }))
+  }, [visibleEntries, spotlightCat])
 
   // Aggregate by category
   const byCat: Record<string, number> = {}
@@ -111,6 +210,64 @@ export default function Trends() {
           {count === 0 && (
             <div className="text-center text-gray-500 text-sm py-12">
               No transactions for this period.
+            </div>
+          )}
+
+          {/* Monthly Overview */}
+          {monthlyData.length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-5">
+                Monthly Overview
+              </h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={monthlyData} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                  <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false}
+                    tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} width={40} />
+                  <Tooltip content={<MonthlyTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Legend wrapperStyle={{ fontSize: '11px', color: '#6b7280', paddingTop: '12px' }} />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="expense" name="Spent" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Category Spotlight */}
+          {categoryData.length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  Category Spotlight
+                </h2>
+                <select
+                  value={spotlightCat}
+                  onChange={e => setSpotlightCat(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Pick a category…</option>
+                  {categoryData.map(c => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              {spotlightCat && spotlightData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={spotlightData} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                    <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false}
+                      tickFormatter={(v: number) => `$${v}`} width={50} />
+                    <Tooltip content={<SpotlightTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Bar dataKey="total" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-600 text-sm py-8">
+                  {spotlightCat
+                    ? 'No spending in this category for the selected period.'
+                    : 'Select a category to see month-by-month spending.'}
+                </div>
+              )}
             </div>
           )}
 

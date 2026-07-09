@@ -1145,6 +1145,50 @@ function PromoWindowsSection({ accounts }: { accounts: Account[] }) {
 }
 
 
+// ── Due-soon payment strip ────────────────────────────────────────────────────
+
+function DueSoonStrip({ accounts }: { accounts: Account[] }) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const dueSoon = accounts
+    .filter(a => a.type === 'credit_card' && a.due_day != null)
+    .map(a => {
+      const dueDay = a.due_day!
+      const year = today.getFullYear()
+      const month = today.getMonth()
+      let dueDate = new Date(year, month, dueDay)
+      if (dueDate.getTime() < today.getTime()) {
+        dueDate = new Date(year, month + 1, dueDay)
+      }
+      const daysUntil = Math.round((dueDate.getTime() - today.getTime()) / 86400000)
+      return { account: a, daysUntil }
+    })
+    .filter(x => x.daysUntil <= 7)
+    .sort((a, b) => a.daysUntil - b.daysUntil)
+
+  if (dueSoon.length === 0) return null
+
+  return (
+    <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3">
+      <div className="text-xs font-medium text-amber-400 uppercase tracking-wider mb-2">Payments Due Soon</div>
+      <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+        {dueSoon.map(({ account, daysUntil }) => (
+          <div key={account.id} className="flex items-center gap-2 text-sm">
+            <span className="text-gray-300">{account.name}</span>
+            <span className="font-mono text-gray-500 text-xs">{fmt(account.current_balance)}</span>
+            <span className={`text-xs font-medium ${
+              daysUntil === 0 ? 'text-red-400' : daysUntil <= 3 ? 'text-amber-400' : 'text-gray-400'
+            }`}>
+              {daysUntil === 0 ? 'due today' : `due in ${daysUntil}d`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -1218,6 +1262,8 @@ export default function Dashboard() {
       <div className="flex justify-end">
         <MonthNav month={month} onChange={setMonth} />
       </div>
+
+      <DueSoonStrip accounts={allAccounts} />
 
       {/* Hero */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
