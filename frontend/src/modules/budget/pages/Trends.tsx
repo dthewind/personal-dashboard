@@ -127,13 +127,13 @@ export default function Trends() {
 
   const { data: expenses } = useQuery({
     queryKey: ['ledger', 'expense', range.start, range.end],
-    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'expense' }),
+    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'expense', limit: 100000 }),
     enabled: !!(range.start && range.end),
   })
 
   const { data: incomeEntries } = useQuery({
     queryKey: ['ledger', 'income', range.start, range.end],
-    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'income' }),
+    queryFn: () => api.ledger.list({ start: range.start, end: range.end, type: 'income', limit: 100000 }),
     enabled: !!(range.start && range.end),
   })
 

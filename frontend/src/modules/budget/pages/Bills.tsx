@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
+import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel, toDateStr } from '../utils'
 import Typeahead from '../components/Typeahead'
 import type { Account, FixedBill, FixedBillCreate, FixedBillPayment, FixedBillUpdate } from '../types'
 
@@ -448,7 +448,7 @@ function PayModal({
 function sixMonthsAgo(): string {
   const d = new Date()
   d.setMonth(d.getMonth() - 6)
-  return d.toISOString().slice(0, 10)
+  return toDateStr(d)
 }
 
 function SubscriptionLeaks({ bills }: { bills: FixedBill[] }) {

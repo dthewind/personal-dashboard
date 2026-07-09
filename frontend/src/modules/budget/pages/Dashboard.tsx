@@ -2,7 +2,7 @@
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
+import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel, todayStr, toDateStr } from '../utils'
 import type { Account, AccountCreate, AccountType, AutopayType, AllocationCreate, LedgerEntry, LedgerEntryCreate, IncomeType, MonthlySummary, PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate, WaterfallData } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
@@ -1330,8 +1330,8 @@ interface ForecastItem {
 }
 
 function CashflowForecast({ accounts }: { accounts: Account[] }) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const todayKey = todayStr()
+  const today = new Date(todayKey + 'T00:00:00')
 
   const { data: bills = [] } = useQuery({
     queryKey: ['bills'],
@@ -1341,21 +1341,20 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
   const checkingAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
   const checkingBalance = checkingAccounts.reduce((s, a) => s + a.current_balance, 0)
 
-  const creditCards = accounts.filter(a => a.type === 'credit_card')
-
   const items = useMemo((): ForecastItem[] => {
+    const start = new Date(todayKey + 'T00:00:00')
     const result: ForecastItem[] = []
-    const horizon = new Date(today)
+    const horizon = new Date(start)
     horizon.setDate(horizon.getDate() + 30)
 
     for (const bill of bills) {
       if (!bill.is_active) continue
       // Find next occurrence within 30 days
       for (let mo = 0; mo <= 1; mo++) {
-        const d = new Date(today.getFullYear(), today.getMonth() + mo, bill.due_day)
-        if (d >= today && d <= horizon) {
+        const d = new Date(start.getFullYear(), start.getMonth() + mo, bill.due_day)
+        if (d >= start && d <= horizon) {
           result.push({
-            date: d.toISOString().slice(0, 10),
+            date: toDateStr(d),
             label: bill.name,
             amount: -bill.expected_amount,
             type: 'bill',
@@ -1365,13 +1364,13 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
     }
 
     // CC payments due
-    for (const cc of creditCards) {
+    for (const cc of accounts.filter(a => a.type === 'credit_card')) {
       if (!cc.due_day || cc.current_balance <= 0) continue
       for (let mo = 0; mo <= 1; mo++) {
-        const d = new Date(today.getFullYear(), today.getMonth() + mo, cc.due_day)
-        if (d >= today && d <= horizon) {
+        const d = new Date(start.getFullYear(), start.getMonth() + mo, cc.due_day)
+        if (d >= start && d <= horizon) {
           result.push({
-            date: d.toISOString().slice(0, 10),
+            date: toDateStr(d),
             label: `${cc.name} payment`,
             amount: -cc.current_balance,
             type: 'bill',
@@ -1381,7 +1380,7 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
     }
 
     return result.sort((a, b) => a.date.localeCompare(b.date))
-  }, [bills, accounts, today])
+  }, [bills, accounts, todayKey])
 
   const totalOutflow = items.filter(i => i.amount < 0).reduce((s, i) => s + i.amount, 0)
   const projectedBalance = checkingBalance + totalOutflow

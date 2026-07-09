@@ -37,11 +37,12 @@ export const api = {
     list: (params?: {
       start?: string; end?: string; account_id?: string
       type?: string; category?: string; merchant?: string
+      limit?: number
     }) => {
       const qs = new URLSearchParams(
-        Object.fromEntries(
-          Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== '')
-        ) as Record<string, string>
+        Object.entries(params ?? {})
+          .filter(([, v]) => v !== undefined && v !== '')
+          .map(([k, v]) => [k, String(v)])
       ).toString()
       return req<LedgerEntry[]>(`/ledger${qs ? '?' + qs : ''}`)
     },

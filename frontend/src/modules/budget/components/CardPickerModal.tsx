@@ -1,15 +1,11 @@
 ﻿import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt } from '../utils'
+import { fmt, todayStr } from '../utils'
 import Typeahead from './Typeahead'
 import type { RewardRule, RewardRuleCreate, RewardRuleUpdate, Account } from '../types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function isRuleActive(r: RewardRule): boolean {
   if (!r.is_rotating) return true

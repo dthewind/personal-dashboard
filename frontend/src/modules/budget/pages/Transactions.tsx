@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt } from '../utils'
+import { fmt, todayStr } from '../utils'
 import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
 import Typeahead from '../components/Typeahead'
@@ -361,7 +361,7 @@ function AddForm({
   onCancel: () => void; saving: boolean
 }) {
   const [type, setType] = useState<AddType>('expense')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayStr()
   const sorted = [...accounts].sort((a, b) => a.name.localeCompare(b.name))
   const firstId = defaultAccountId || sorted[0]?.id || ''
   const depositAccounts = sorted.filter(a => a.type === 'checking' || a.type === 'savings')
@@ -563,7 +563,7 @@ export default function Transactions() {
 
   const { data: allEntries, isLoading } = useQuery({
     queryKey: ['ledger', range.start, range.end],
-    queryFn: () => api.ledger.list({ start: range.start, end: range.end }),
+    queryFn: () => api.ledger.list({ start: range.start, end: range.end, limit: 100000 }),
     enabled,
   })
 

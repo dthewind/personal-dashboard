@@ -10,8 +10,14 @@ export function currentMonthStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
+// Local-date formatter — never use toISOString() for calendar dates:
+// it converts to UTC, which rolls past midnight during Central Time evenings.
+export function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function todayStr(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toDateStr(new Date())
 }
 
 export function prevMonth(m: string): string {

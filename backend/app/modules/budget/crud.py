@@ -23,6 +23,14 @@ from .schemas import (
 )
 
 
+def _month_bounds(month: datetime.date) -> tuple[datetime.date, datetime.date]:
+    """First day of the month and first day of the next month (half-open range)."""
+    start = month.replace(day=1)
+    if start.month == 12:
+        return start, datetime.date(start.year + 1, 1, 1)
+    return start, datetime.date(start.year, start.month + 1, 1)
+
+
 # ── Balance computation ────────────────────────────────────────────────────────
 
 def recompute_balance(db: Session, account_id: str) -> None:
@@ -231,7 +239,7 @@ def update_ledger_entry(db: Session, entry_id: str, data: LedgerEntryUpdate) -> 
         return None
 
     old_account_id = entry.account_id
-    updates = data.model_dump(exclude_none=True)
+    updates = data.model_dump(exclude_unset=True)
 
     for field, value in updates.items():
         setattr(entry, field, value)
@@ -371,6 +379,16 @@ def rename_category(db: Session, old_name: str, new_name: str) -> int:
     result = db.execute(
         update(LedgerEntry).where(LedgerEntry.category == old_name).values(category=new_name)
     )
+    # cascade so merchant prediction, card rewards, and bill defaults follow the rename
+    db.execute(
+        update(Merchant).where(Merchant.default_category == old_name).values(default_category=new_name)
+    )
+    db.execute(
+        update(RewardRule).where(RewardRule.category == old_name).values(category=new_name)
+    )
+    db.execute(
+        update(FixedBill).where(FixedBill.category == old_name).values(category=new_name)
+    )
     old_rule = db.get(CategoryRule, old_name)
     if old_rule:
         new_rule = db.get(CategoryRule, new_name)
@@ -447,17 +465,21 @@ def get_merchant_stats(db: Session) -> list[dict]:
 
 def get_waterfall(db: Session, pay_month: datetime.date, daily_budget: Decimal = Decimal("75")) -> WaterfallOut:
     DAILY_FIXED = daily_budget
+    month_start, month_next = _month_bounds(pay_month)
+    today = datetime.date.today()
+    is_current = pay_month.year == today.year and pay_month.month == today.month
+    is_past = (pay_month.year, pay_month.month) < (today.year, today.month)
 
     gross = db.scalar(
         select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
             LedgerEntry.type == "income",
-            extract("year", LedgerEntry.date) == pay_month.year,
-            extract("month", LedgerEntry.date) == pay_month.month,
+            LedgerEntry.date >= month_start,
+            LedgerEntry.date < month_next,
         )
     ) or Decimal("0")
 
     allocation = db.scalars(
-        select(Allocation).where(Allocation.pay_month == pay_month)
+        select(Allocation).where(Allocation.pay_month == month_start)
     ).first()
     fed = allocation.fed_tax if allocation else Decimal("0")
     state = allocation.state_tax if allocation else Decimal("0")
@@ -467,11 +489,23 @@ def get_waterfall(db: Session, pay_month: datetime.date, daily_budget: Decimal =
     net = gross - fed - state - sep
     after_save = net - roth
 
-    fixed_total = db.scalar(
-        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
-            FixedBill.is_active == True  # noqa: E712
-        )
-    ) or Decimal("0")
+    # Past months use what was actually paid so history stays frozen when the
+    # bill list changes later; current/future months use the expected amounts.
+    if is_past:
+        fixed_total = db.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
+                LedgerEntry.type == "expense",
+                LedgerEntry.bill_id.isnot(None),
+                LedgerEntry.date >= month_start,
+                LedgerEntry.date < month_next,
+            )
+        ) or Decimal("0")
+    else:
+        fixed_total = db.scalar(
+            select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
+                FixedBill.is_active == True  # noqa: E712
+            )
+        ) or Decimal("0")
 
     after_fixed = after_save - fixed_total
     max_spend = min(
@@ -486,17 +520,14 @@ def get_waterfall(db: Session, pay_month: datetime.date, daily_budget: Decimal =
     spent_q = select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
         LedgerEntry.type == "expense",
         LedgerEntry.bill_id.is_(None),
-        extract("year", LedgerEntry.date) == pay_month.year,
-        extract("month", LedgerEntry.date) == pay_month.month,
+        LedgerEntry.date >= month_start,
+        LedgerEntry.date < month_next,
     )
     if excluded_cats:
         spent_q = spent_q.where(LedgerEntry.category.notin_(excluded_cats))
     spent = db.scalar(spent_q) or Decimal("0")
 
-    today = datetime.date.today()
     days_in_month = calendar.monthrange(pay_month.year, pay_month.month)[1]
-    is_current = pay_month.year == today.year and pay_month.month == today.month
-    is_past = (pay_month.year, pay_month.month) < (today.year, today.month)
 
     if is_current:
         days_left = max(days_in_month - today.day + 1, 1)
@@ -550,7 +581,7 @@ def update_bill(db: Session, bill_id: str, data: FixedBillUpdate) -> FixedBill |
     bill = db.get(FixedBill, bill_id)
     if not bill:
         return None
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(bill, field, value)
     db.commit()
     db.refresh(bill)
@@ -577,10 +608,8 @@ def get_bill_payments(db: Session, bill_id: str, month: datetime.date | None = N
         .order_by(LedgerEntry.date.desc())
     )
     if month:
-        q = q.where(
-            extract("year", LedgerEntry.date) == month.year,
-            extract("month", LedgerEntry.date) == month.month,
-        )
+        m_start, m_next = _month_bounds(month)
+        q = q.where(LedgerEntry.date >= m_start, LedgerEntry.date < m_next)
     return [_entry_to_payment_dict(entry, bill_name) for entry, bill_name in db.execute(q).all()]
 
 
@@ -598,10 +627,8 @@ def get_all_bill_payments(
         .order_by(LedgerEntry.date.desc())
     )
     if month:
-        q = q.where(
-            extract("year", LedgerEntry.date) == month.year,
-            extract("month", LedgerEntry.date) == month.month,
-        )
+        m_start, m_next = _month_bounds(month)
+        q = q.where(LedgerEntry.date >= m_start, LedgerEntry.date < m_next)
     if account_id:
         q = q.where(LedgerEntry.account_id == account_id)
     if start:
@@ -670,7 +697,7 @@ def update_income_period(db: Session, period_id: str, data: IncomePeriodUpdate) 
     period = db.get(IncomePeriod, period_id)
     if not period:
         return None
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(period, field, value)
     db.commit()
     db.refresh(period)
@@ -789,22 +816,67 @@ def delete_reward_rule(db: Session, rule_id: str) -> bool:
 
 def get_annual_summary(db: Session, year: int) -> list[dict]:
     today = datetime.date.today()
+    current_month_start = today.replace(day=1)
+    year_start = datetime.date(year, 1, 1)
+    year_end = datetime.date(year + 1, 1, 1)
+    mo_expr = extract("month", LedgerEntry.date).label("mo")
+
+    def _by_month(*conditions) -> dict[int, Decimal]:
+        rows = db.execute(
+            select(mo_expr, func.sum(LedgerEntry.amount).label("total"))
+            .where(LedgerEntry.date >= year_start, LedgerEntry.date < year_end, *conditions)
+            .group_by(mo_expr)
+        ).all()
+        return {int(r.mo): r.total for r in rows}
+
+    income_by_month = _by_month(LedgerEntry.type == "income")
+    bills_by_month = _by_month(LedgerEntry.type == "expense", LedgerEntry.bill_id.isnot(None))
+
+    excluded_cats = db.scalars(
+        select(CategoryRule.name).where(CategoryRule.exclude_from_spend == True)  # noqa: E712
+    ).all()
+    variable_conditions = [LedgerEntry.type == "expense", LedgerEntry.bill_id.is_(None)]
+    if excluded_cats:
+        variable_conditions.append(LedgerEntry.category.notin_(excluded_cats))
+    variable_by_month = _by_month(*variable_conditions)
+
+    allocations = {
+        a.pay_month.month: a
+        for a in db.scalars(
+            select(Allocation).where(Allocation.pay_month >= year_start, Allocation.pay_month < year_end)
+        )
+    }
+
+    expected_fixed = db.scalar(
+        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
+            FixedBill.is_active == True  # noqa: E712
+        )
+    ) or Decimal("0")
+
     result = []
     for mo in range(1, 13):
         month = datetime.date(year, mo, 1)
-        if month > today.replace(day=1):
+        if month > current_month_start:
             break
-        w = get_waterfall(db, month)
-        total_spend = float(w.spent_to_date + w.fixed_bills_total)
-        net = float(w.net_income)
+        gross = income_by_month.get(mo, Decimal("0"))
+        alloc = allocations.get(mo)
+        fed = alloc.fed_tax if alloc else Decimal("0")
+        state = alloc.state_tax if alloc else Decimal("0")
+        sep = alloc.sep_contribution if alloc else Decimal("0")
+        roth = alloc.roth_contribution if alloc else Decimal("0")
+        net = float(gross - fed - state - sep)
+
+        # same semantics as get_waterfall: past months use actual bill payments
+        fixed = bills_by_month.get(mo, Decimal("0")) if month < current_month_start else expected_fixed
+        total_spend = float(variable_by_month.get(mo, Decimal("0")) + fixed)
         savings_rate = round((net - total_spend) / net * 100, 1) if net > 0 else 0.0
         result.append({
             "month": f"{year}-{mo:02d}",
-            "gross_income": float(w.gross_income),
+            "gross_income": float(gross),
             "net_income": net,
             "total_spend": total_spend,
-            "sep_contribution": float(w.sep_contribution),
-            "roth_contribution": float(w.roth_contribution),
+            "sep_contribution": float(sep),
+            "roth_contribution": float(roth),
             "savings_rate": savings_rate,
         })
     return result
