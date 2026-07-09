@@ -6,7 +6,7 @@ from sqlalchemy import extract, func, select, update
 from sqlalchemy.orm import Session
 
 from .models import (
-    Account, AccountCredit, Allocation, CategoryRule, FixedBill,
+    Account, AccountCredit, Allocation, BudgetSettings, CategoryRule, FixedBill,
     IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, Transaction, Transfer,
 )
 from .schemas import (
@@ -808,3 +808,23 @@ def get_annual_summary(db: Session, year: int) -> list[dict]:
             "savings_rate": savings_rate,
         })
     return result
+
+
+# ── Budget Settings ────────────────────────────────────────────────────────────
+
+def get_settings(db: Session) -> BudgetSettings:
+    row = db.get(BudgetSettings, 1)
+    if row is None:
+        row = BudgetSettings(id=1, daily_budget=Decimal("75"))
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
+
+
+def update_settings(db: Session, daily_budget: Decimal) -> BudgetSettings:
+    row = get_settings(db)
+    row.daily_budget = daily_budget
+    db.commit()
+    db.refresh(row)
+    return row

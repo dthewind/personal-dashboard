@@ -260,3 +260,10 @@ class LedgerEntry(Base):
 
     account: Mapped["Account"] = relationship(back_populates="ledger_entries")
     merchant_ref: Mapped["Merchant | None"] = relationship()
+
+
+class BudgetSettings(Base):
+    __tablename__ = "budget_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    daily_budget: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("75"))

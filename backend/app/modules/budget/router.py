@@ -10,6 +10,7 @@ from . import crud
 from .schemas import (
     AccountCreate, AccountOut, AccountUpdate,
     AllocationCreate, AllocationOut,
+    BudgetSettingsOut, BudgetSettingsUpdate,
     CategoryRuleUpdate,
     FixedBillCreate, FixedBillOut, FixedBillPaymentCreate, FixedBillPaymentOut, FixedBillUpdate,
     IncomePeriodCreate, IncomePeriodOut, IncomePeriodUpdate,
@@ -313,3 +314,15 @@ def delete_reward_rule(rule_id: str, db: Session = Depends(get_db)):
 def get_annual_summary(year: int | None = None, db: Session = Depends(get_db)):
     yr = year or datetime.date.today().year
     return crud.get_annual_summary(db, yr)
+
+
+# ── Budget Settings ────────────────────────────────────────────────────────────
+
+@router.get("/settings", response_model=BudgetSettingsOut)
+def get_settings(db: Session = Depends(get_db)):
+    return crud.get_settings(db)
+
+
+@router.put("/settings", response_model=BudgetSettingsOut)
+def update_settings(data: BudgetSettingsUpdate, db: Session = Depends(get_db)):
+    return crud.update_settings(db, data.daily_budget)

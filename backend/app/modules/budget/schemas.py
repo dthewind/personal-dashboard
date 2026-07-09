@@ -484,3 +484,13 @@ class RewardRuleOut(BaseModel):
     promo_end_date: datetime.date | None
     spending_cap: DecimalJSON | None
     amount_used: DecimalJSON
+
+
+# ── Budget Settings ────────────────────────────────────────────────────────────
+
+class BudgetSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    daily_budget: DecimalJSON
+
+class BudgetSettingsUpdate(BaseModel):
+    daily_budget: Decimal

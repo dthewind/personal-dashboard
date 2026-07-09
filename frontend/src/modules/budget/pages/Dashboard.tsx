@@ -1442,11 +1442,22 @@ export default function Dashboard() {
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAddIncome, setShowAddIncome] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
-  const [dailyBudget, setDailyBudget] = useState(() =>
-    parseFloat(localStorage.getItem('dailyBudget') ?? '75')
-  )
   const [editingDaily, setEditingDaily] = useState(false)
   const [dailyDraft, setDailyDraft] = useState('')
+
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.settings.get(),
+  })
+  const dailyBudget = settingsData?.daily_budget ?? 75
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: (val: number) => api.settings.update(val),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['waterfall'] })
+    },
+  })
 
   function startEditDaily() {
     setDailyDraft(String(dailyBudget))
@@ -1456,9 +1467,7 @@ export default function Dashboard() {
   function commitDaily() {
     const val = parseFloat(dailyDraft)
     if (!isNaN(val) && val > 0) {
-      localStorage.setItem('dailyBudget', String(val))
-      setDailyBudget(val)
-      qc.invalidateQueries({ queryKey: ['waterfall'] })
+      saveSettingsMutation.mutate(val)
     }
     setEditingDaily(false)
   }
@@ -1466,6 +1475,7 @@ export default function Dashboard() {
   const { data: waterfall, isLoading: wLoading } = useQuery({
     queryKey: ['waterfall', month, dailyBudget],
     queryFn: () => api.waterfall(month, dailyBudget),
+    enabled: settingsData !== undefined,
   })
 
   const { data: accounts, isLoading: aLoading } = useQuery({

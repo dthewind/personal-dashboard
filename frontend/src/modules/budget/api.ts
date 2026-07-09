@@ -158,4 +158,10 @@ export const api = {
     const q = year ? `?year=${year}` : ''
     return req<MonthlySummary[]>(`/annual-summary${q}`)
   },
+
+  settings: {
+    get: () => req<{ daily_budget: number }>('/settings'),
+    update: (daily_budget: number) =>
+      req<{ daily_budget: number }>('/settings', { method: 'PUT', body: JSON.stringify({ daily_budget }) }),
+  },
 }
