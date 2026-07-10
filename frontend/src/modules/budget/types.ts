@@ -381,4 +381,40 @@ export interface MonthlySummary {
   sep_contribution: number
   roth_contribution: number
   savings_rate: number
+  fixed_total: number
+  variable_spend: number
+  after_fixed: number
+  max_spend: number
+  potential_savings: number   // plan: After Fixed − Max Spend (hold the daily line)
+  actual_savings: number      // reality: After Fixed − variable spend
+}
+
+export interface OutlookMonth {
+  month: string
+  has_plan: boolean
+  period_id: string | null
+  planned_hours: number | null
+  hourly_rate: number | null
+  gross_income: number
+  fed_tax: number
+  state_tax: number
+  sep_contribution: number
+  roth_contribution: number
+  net_income: number
+  after_save: number
+  fixed_bills_total: number
+  after_fixed: number
+  max_spend: number
+  potential_savings: number
+  cumulative_savings: number
+  days_in_month: number
+}
+
+export interface CategoryStat {
+  name: string
+  count: number
+  total: number
+  exclude_from_spend: boolean
+  exclude_from_trends: boolean
+  monthly_target: number | null
 }

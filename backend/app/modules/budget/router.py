@@ -308,6 +308,13 @@ def delete_reward_rule(rule_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Reward rule not found")
 
 
+# ── Outlook ────────────────────────────────────────────────────────────────────
+
+@router.get("/outlook")
+def get_outlook(months: int = 6, db: Session = Depends(get_db)):
+    return crud.get_outlook(db, months=min(max(months, 1), 12))
+
+
 # ── Annual Summary ─────────────────────────────────────────────────────────────
 
 @router.get("/annual-summary")

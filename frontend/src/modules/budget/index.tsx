@@ -5,6 +5,7 @@ import Transactions from './pages/Transactions'
 import Bills from './pages/Bills'
 import Trends from './pages/Trends'
 import IncomePage from './pages/Income'
+import OutlookPage from './pages/Outlook'
 import ImportPage from './pages/Import'
 import LookupPage from './pages/Lookup'
 
@@ -14,6 +15,7 @@ const TABS = [
   { to: '/budget/transactions', label: 'Transactions' },
   { to: '/budget/bills', label: 'Bills' },
   { to: '/budget/income', label: 'Income' },
+  { to: '/budget/outlook', label: 'Outlook' },
   { to: '/budget/trends', label: 'Trends' },
   { to: '/budget/import', label: 'Import', desktopOnly: true },
   { to: '/budget/lookup', label: 'Lookup', desktopOnly: true },
@@ -46,6 +48,7 @@ export default function BudgetModule() {
         <Route path="transactions" element={<Transactions />} />
         <Route path="bills" element={<Bills />} />
         <Route path="income" element={<IncomePage />} />
+        <Route path="outlook" element={<OutlookPage />} />
         <Route path="trends" element={<Trends />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="lookup" element={<LookupPage />} />

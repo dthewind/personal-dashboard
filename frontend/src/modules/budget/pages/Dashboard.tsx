@@ -1433,6 +1433,82 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
   )
 }
 
+// ── Category Targets ──────────────────────────────────────────────────────────
+
+function CategoryTargetsCard({ month, monthEnd }: { month: string; monthEnd: string }) {
+  const { data: catStats = [] } = useQuery({
+    queryKey: ['category-stats'],
+    queryFn: () => api.categoryStats(),
+  })
+  const targets = catStats
+    .filter(c => c.monthly_target != null && c.monthly_target > 0)
+    .sort((a, b) => (b.monthly_target ?? 0) - (a.monthly_target ?? 0))
+
+  const { data: expenses = [] } = useQuery({
+    queryKey: ['ledger', 'expense', month, monthEnd],
+    queryFn: () => api.ledger.list({ start: month, end: monthEnd, type: 'expense' }),
+    enabled: targets.length > 0,
+  })
+
+  if (targets.length === 0) return null
+
+  const spentByCat: Record<string, number> = {}
+  for (const e of expenses) {
+    if (e.bill_id) continue
+    const cat = e.category ?? ''
+    spentByCat[cat] = (spentByCat[cat] ?? 0) + e.amount
+  }
+
+  const today = todayStr()
+  const isCurrent = today.slice(0, 7) === month.slice(0, 7)
+  const [y, m] = month.split('-').map(Number)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const paceFrac = isCurrent ? parseInt(today.slice(8, 10)) / daysInMonth : 1
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-xs font-medium text-white uppercase tracking-wider">Category Targets</h2>
+        <span className="text-xs text-gray-600">set targets in Lookup</span>
+      </div>
+      <div className="space-y-3">
+        {targets.map(c => {
+          const target = c.monthly_target!
+          const spent = spentByCat[c.name] ?? 0
+          const pct = Math.min((spent / target) * 100, 100)
+          const over = spent > target
+          const hot = !over && spent > target * paceFrac  // ahead of pace but not over yet
+          const barColor = over ? 'bg-red-500' : hot ? 'bg-amber-500' : 'bg-emerald-500'
+          return (
+            <div key={c.name}>
+              <div className="flex justify-between items-baseline text-sm mb-1">
+                <span className="text-gray-300">{c.name}</span>
+                <span className="font-mono text-xs">
+                  <span className={over ? 'text-red-400' : 'text-white'}>{fmt(spent)}</span>
+                  <span className="text-gray-600"> / {fmt(target)}</span>
+                  <span className={`ml-2 ${over ? 'text-red-400' : 'text-gray-500'}`}>
+                    {over ? `${fmt(spent - target)} over` : `${fmt(target - spent)} left`}
+                  </span>
+                </span>
+              </div>
+              <div className="relative h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                {isCurrent && paceFrac < 1 && (
+                  <div
+                    className="absolute top-0 h-full w-px bg-gray-400/70"
+                    style={{ left: `${paceFrac * 100}%` }}
+                    title="Month pace — spend left of this line is on track"
+                  />
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -1649,6 +1725,9 @@ export default function Dashboard() {
 
       {/* Waterfall */}
       <Waterfall w={w} month={month} monthEnd={monthEnd} accounts={allAccounts} />
+
+      {/* Category Targets */}
+      <CategoryTargetsCard month={month} monthEnd={monthEnd} />
 
       {/* FIRE widgets row */}
       {annualData.length > 0 && (

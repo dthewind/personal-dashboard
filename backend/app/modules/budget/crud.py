@@ -410,6 +410,7 @@ def get_category_stats(db: Session) -> list[dict]:
             func.sum(LedgerEntry.amount).label("total"),
             func.coalesce(CategoryRule.exclude_from_spend, False).label("exclude_from_spend"),
             func.coalesce(CategoryRule.exclude_from_trends, False).label("exclude_from_trends"),
+            CategoryRule.monthly_target,
         )
         .where(LedgerEntry.type == "expense", LedgerEntry.category.isnot(None))
         .outerjoin(CategoryRule, LedgerEntry.category == CategoryRule.name)
@@ -417,6 +418,7 @@ def get_category_stats(db: Session) -> list[dict]:
             LedgerEntry.category,
             CategoryRule.exclude_from_spend,
             CategoryRule.exclude_from_trends,
+            CategoryRule.monthly_target,
         )
         .order_by(LedgerEntry.category)
     ).all()
@@ -427,6 +429,7 @@ def get_category_stats(db: Session) -> list[dict]:
             "total": float(r.total),
             "exclude_from_spend": r.exclude_from_spend,
             "exclude_from_trends": r.exclude_from_trends,
+            "monthly_target": float(r.monthly_target) if r.monthly_target is not None else None,
         }
         for r in rows
     ]
@@ -437,10 +440,8 @@ def upsert_category_rule(db: Session, name: str, data: CategoryRuleUpdate) -> Ca
     if rule is None:
         rule = CategoryRule(name=name)
         db.add(rule)
-    if data.exclude_from_spend is not None:
-        rule.exclude_from_spend = data.exclude_from_spend
-    if data.exclude_from_trends is not None:
-        rule.exclude_from_trends = data.exclude_from_trends
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(rule, field, value)
     db.commit()
     db.refresh(rule)
     return rule
@@ -812,6 +813,80 @@ def delete_reward_rule(db: Session, rule_id: str) -> bool:
     return True
 
 
+# ── Outlook (forward projection) ───────────────────────────────────────────────
+
+def get_outlook(db: Session, months: int = 6) -> list[dict]:
+    """Project the waterfall forward: planned contract income per pay month,
+    deductions carried forward from the latest allocation, active fixed bills,
+    and Potential Savings = After Fixed − Max Spend if spending holds the
+    daily-budget line."""
+    today = datetime.date.today()
+    daily = get_settings(db).daily_budget
+
+    fixed_total = db.scalar(
+        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
+            FixedBill.is_active == True  # noqa: E712
+        )
+    ) or Decimal("0")
+
+    allocations = list(db.scalars(select(Allocation).order_by(Allocation.pay_month)))
+    periods = {
+        p.pay_month.replace(day=1): p
+        for p in db.scalars(select(IncomePeriod))
+    }
+
+    month = _month_bounds(today)[1]  # first future month
+    cumulative = Decimal("0")
+    zero = Decimal("0")
+    result = []
+    for _ in range(months):
+        period = periods.get(month)
+        gross = period.planned_hours * period.hourly_rate if period else zero
+
+        # carry the most recent allocation forward (static deductions)
+        alloc = None
+        for a in allocations:
+            if a.pay_month <= month:
+                alloc = a
+            else:
+                break
+        fed = alloc.fed_tax if alloc else zero
+        state = alloc.state_tax if alloc else zero
+        sep = alloc.sep_contribution if alloc else zero
+        roth = alloc.roth_contribution if alloc else zero
+
+        net = gross - fed - state - sep
+        after_save = net - roth
+        after_fixed = after_save - fixed_total
+        days = calendar.monthrange(month.year, month.month)[1]
+        max_spend = min(Decimal(days) * daily, after_fixed)
+        potential = after_fixed - max_spend
+        cumulative += potential
+
+        result.append({
+            "month": month.isoformat(),
+            "has_plan": period is not None,
+            "period_id": period.id if period else None,
+            "planned_hours": float(period.planned_hours) if period else None,
+            "hourly_rate": float(period.hourly_rate) if period else None,
+            "gross_income": float(gross),
+            "fed_tax": float(fed),
+            "state_tax": float(state),
+            "sep_contribution": float(sep),
+            "roth_contribution": float(roth),
+            "net_income": float(net),
+            "after_save": float(after_save),
+            "fixed_bills_total": float(fixed_total),
+            "after_fixed": float(after_fixed),
+            "max_spend": float(max_spend),
+            "potential_savings": float(potential),
+            "cumulative_savings": float(cumulative),
+            "days_in_month": days,
+        })
+        month = _month_bounds(month)[1]
+    return result
+
+
 # ── Annual Summary ─────────────────────────────────────────────────────────────
 
 def get_annual_summary(db: Session, year: int) -> list[dict]:
@@ -853,6 +928,8 @@ def get_annual_summary(db: Session, year: int) -> list[dict]:
         )
     ) or Decimal("0")
 
+    daily = get_settings(db).daily_budget
+
     result = []
     for mo in range(1, 13):
         month = datetime.date(year, mo, 1)
@@ -864,20 +941,35 @@ def get_annual_summary(db: Session, year: int) -> list[dict]:
         state = alloc.state_tax if alloc else Decimal("0")
         sep = alloc.sep_contribution if alloc else Decimal("0")
         roth = alloc.roth_contribution if alloc else Decimal("0")
-        net = float(gross - fed - state - sep)
+        net = gross - fed - state - sep
+        after_save = net - roth
 
         # same semantics as get_waterfall: past months use actual bill payments
         fixed = bills_by_month.get(mo, Decimal("0")) if month < current_month_start else expected_fixed
-        total_spend = float(variable_by_month.get(mo, Decimal("0")) + fixed)
-        savings_rate = round((net - total_spend) / net * 100, 1) if net > 0 else 0.0
+        variable = variable_by_month.get(mo, Decimal("0"))
+        after_fixed = after_save - fixed
+        days = calendar.monthrange(year, mo)[1]
+        max_spend = min(Decimal(days) * daily, after_fixed)
+        potential_savings = after_fixed - max_spend  # plan: hold the daily line
+        actual_savings = after_fixed - variable       # what actually got banked
+
+        total_spend = float(variable + fixed)
+        net_f = float(net)
+        savings_rate = round((net_f - total_spend) / net_f * 100, 1) if net_f > 0 else 0.0
         result.append({
             "month": f"{year}-{mo:02d}",
             "gross_income": float(gross),
-            "net_income": net,
+            "net_income": net_f,
             "total_spend": total_spend,
             "sep_contribution": float(sep),
             "roth_contribution": float(roth),
             "savings_rate": savings_rate,
+            "fixed_total": float(fixed),
+            "variable_spend": float(variable),
+            "after_fixed": float(after_fixed),
+            "max_spend": float(max_spend),
+            "potential_savings": float(potential_savings),
+            "actual_savings": float(actual_savings),
         })
     return result
 

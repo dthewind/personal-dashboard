@@ -211,6 +211,7 @@ class TransferPairCreate(BaseModel):
 class CategoryRuleUpdate(BaseModel):
     exclude_from_spend: bool | None = None
     exclude_from_trends: bool | None = None
+    monthly_target: Decimal | None = None  # explicit null clears the target
 
 
 # ── Fixed Bills ────────────────────────────────────────────────────────────────

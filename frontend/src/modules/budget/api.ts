@@ -1,11 +1,12 @@
 import type {
   Account, AccountCreate,
   Allocation, AllocationCreate,
+  CategoryStat,
   FixedBill, FixedBillCreate, FixedBillUpdate, FixedBillPayment,
   IncomePeriod, IncomePeriodCreate, IncomePeriodUpdate,
   LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate,
   Merchant,
-  MonthlySummary,
+  MonthlySummary, OutlookMonth,
   PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate,
   RewardRule, RewardRuleCreate, RewardRuleUpdate,
   WaterfallData,
@@ -62,9 +63,11 @@ export const api = {
 
   categories: () => req<string[]>('/categories'),
 
+  categoryStats: () => req<CategoryStat[]>('/category-stats'),
+
   categoryRules: {
-    update: (name: string, data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean }) =>
-      req<{ name: string; exclude_from_spend: boolean; exclude_from_trends: boolean }>(
+    update: (name: string, data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean; monthly_target?: number | null }) =>
+      req<CategoryStat>(
         `/categories/${encodeURIComponent(name)}/rules`,
         { method: 'PATCH', body: JSON.stringify(data) },
       ),
@@ -159,6 +162,9 @@ export const api = {
     const q = year ? `?year=${year}` : ''
     return req<MonthlySummary[]>(`/annual-summary${q}`)
   },
+
+  outlook: (months?: number) =>
+    req<OutlookMonth[]>(`/outlook${months ? `?months=${months}` : ''}`),
 
   settings: {
     get: () => req<{ daily_budget: number }>('/settings'),

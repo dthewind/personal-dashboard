@@ -228,6 +228,7 @@ class CategoryRule(Base):
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
     exclude_from_spend: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exclude_from_trends: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    monthly_target: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
 
 
 class LedgerEntry(Base):

@@ -14,6 +14,7 @@ import { api } from '../api'
 import { fmt } from '../utils'
 import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
+import CutFinder from '../components/CutFinder'
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -144,7 +145,7 @@ export default function Trends() {
 
   const { data: catStats } = useQuery({
     queryKey: ['category-stats'],
-    queryFn: () => fetch('/api/budget/category-stats').then(r => r.json()) as Promise<{ name: string; exclude_from_trends: boolean }[]>,
+    queryFn: () => api.categoryStats(),
   })
 
   const hiddenCats = new Set((catStats ?? []).filter(c => c.exclude_from_trends).map(c => c.name))
@@ -344,6 +345,9 @@ export default function Trends() {
               ))}
             </div>
           )}
+
+          {/* Cut Finder */}
+          <CutFinder entries={visibleEntries} />
 
           {/* Monthly Overview */}
           {monthlyData.length > 0 && (

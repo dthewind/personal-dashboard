@@ -2,6 +2,7 @@ import { useState } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
+import type { CategoryStat } from '../types'
 
 type SortDir = 'asc' | 'desc'
 
@@ -13,13 +14,6 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   )
 }
 
-interface CategoryStat {
-  name: string
-  count: number
-  total: number
-  exclude_from_spend: boolean
-  exclude_from_trends: boolean
-}
 interface MerchantStat { id: string; name: string; default_category: string | null; count: number }
 interface Transaction {
   id: string
@@ -36,7 +30,7 @@ type MerchSortKey = 'name' | 'count' | 'default_category'
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500'
 
-function DrilldownPanel({ filter, accounts }: { filter: { category?: string; merchant?: string }; accounts: Account[] }) {
+function DrilldownPanel({ filter, accounts, colSpan = 4 }: { filter: { category?: string; merchant?: string }; accounts: Account[]; colSpan?: number }) {
   const params = new URLSearchParams({ type: 'expense', limit: '200' })
   if (filter.category) params.set('category', filter.category)
   if (filter.merchant) params.set('merchant', filter.merchant)
@@ -49,15 +43,15 @@ function DrilldownPanel({ filter, accounts }: { filter: { category?: string; mer
   const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
 
   if (isLoading) return (
-    <tr><td colSpan={4} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">Loading…</td></tr>
+    <tr><td colSpan={colSpan} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">Loading…</td></tr>
   )
   if (txns.length === 0) return (
-    <tr><td colSpan={4} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">No transactions found.</td></tr>
+    <tr><td colSpan={colSpan} className="px-4 py-3 bg-gray-950 text-xs text-gray-500">No transactions found.</td></tr>
   )
 
   return (
     <tr>
-      <td colSpan={4} className="p-0 bg-gray-950 border-b border-gray-800">
+      <td colSpan={colSpan} className="p-0 bg-gray-950 border-b border-gray-800">
         <div className="max-h-64 overflow-y-auto">
           <table className="w-full">
             <tbody>
@@ -104,6 +98,8 @@ export default function LookupPage() {
   const [renamingCat, setRenamingCat] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [expandedCat, setExpandedCat] = useState<string | null>(null)
+  const [targetEditing, setTargetEditing] = useState<string | null>(null)
+  const [targetValue, setTargetValue] = useState('')
 
   const renameCategory = useMutation({
     mutationFn: ({ old_name, new_name }: { old_name: string; new_name: string }) =>
@@ -122,13 +118,19 @@ export default function LookupPage() {
   })
 
   const updateCategoryRule = useMutation({
-    mutationFn: ({ name, data }: { name: string; data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean } }) =>
+    mutationFn: ({ name, data }: { name: string; data: { exclude_from_spend?: boolean; exclude_from_trends?: boolean; monthly_target?: number | null } }) =>
       api.categoryRules.update(name, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['category-stats'] })
       qc.invalidateQueries({ queryKey: ['waterfall'] })
+      setTargetEditing(null)
     },
   })
+
+  function saveTarget(name: string) {
+    const v = parseFloat(targetValue)
+    updateCategoryRule.mutate({ name, data: { monthly_target: !isNaN(v) && v > 0 ? v : null } })
+  }
 
   // ── Merchant state ────────────────────────────────────────────────────────
   const [merchFilter, setMerchFilter] = useState('')
@@ -238,6 +240,7 @@ export default function LookupPage() {
                 <th className={thCls + ' text-right'} onClick={() => toggleCat('total')}>
                   Total Spent <SortIcon active={catSort === 'total'} dir={catDir} />
                 </th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-400 uppercase tracking-wide w-28" title="Monthly spending target — shown as a gauge on the Dashboard">Target/mo</th>
                 <th className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase tracking-wide w-20" title="Exclude from budget waterfall spend">Budget</th>
                 <th className="px-3 py-2 text-center text-xs font-medium text-gray-400 uppercase tracking-wide w-20" title="Exclude from Trends charts">Trends</th>
                 <th className="px-3 py-2 w-16" />
@@ -245,12 +248,12 @@ export default function LookupPage() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {filteredCats.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-500 text-sm">No categories yet</td></tr>
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-gray-500 text-sm">No categories yet</td></tr>
               ) : filteredCats.map(c => (
                 renamingCat === c.name ? (
                   <>
                     <tr key={c.name} className="bg-gray-800/60">
-                      <td className={tdCls} colSpan={5}>
+                      <td className={tdCls} colSpan={6}>
                         <div className="flex items-center gap-2">
                           <span className="text-gray-400 text-xs">Rename "{c.name}" to:</span>
                           <input
@@ -289,6 +292,37 @@ export default function LookupPage() {
                       </td>
                       <td className={tdCls + ' text-right tabular-nums'}>{c.count}</td>
                       <td className={tdCls + ' text-right tabular-nums'}>${c.total.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
+                        {targetEditing === c.name ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={targetValue}
+                            onChange={e => setTargetValue(e.target.value)}
+                            onBlur={() => saveTarget(c.name)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveTarget(c.name)
+                              if (e.key === 'Escape') setTargetEditing(null)
+                            }}
+                            placeholder="none"
+                            className={inputCls + ' w-20 text-right'}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => { setTargetEditing(c.name); setTargetValue(c.monthly_target != null ? String(c.monthly_target) : '') }}
+                            title="Set a monthly target for this category (blank to clear)"
+                            className={`text-xs tabular-nums px-2 py-0.5 rounded border transition-colors ${
+                              c.monthly_target != null
+                                ? 'bg-indigo-950/40 border-indigo-800 text-indigo-300 hover:bg-indigo-950/70'
+                                : 'bg-transparent border-gray-700 text-gray-600 hover:text-gray-400 hover:border-gray-500'
+                            }`}
+                          >
+                            {c.monthly_target != null ? `$${c.monthly_target}` : 'set'}
+                          </button>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => updateCategoryRule.mutate({ name: c.name, data: { exclude_from_spend: !c.exclude_from_spend } })}
@@ -326,7 +360,7 @@ export default function LookupPage() {
                       </td>
                     </tr>
                     {expandedCat === c.name && (
-                      <DrilldownPanel filter={{ category: c.name }} accounts={accounts} />
+                      <DrilldownPanel filter={{ category: c.name }} accounts={accounts} colSpan={7} />
                     )}
                   </>
                 )
