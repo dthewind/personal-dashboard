@@ -226,6 +226,40 @@ class SavingsGoal(Base):
     account: Mapped["Account | None"] = relationship(back_populates="savings_goals")
 
 
+class Earmark(Base):
+    """Money in a cash account committed to a future obligation (taxes, SEP, Roth).
+    Balance = sum of events; effective savings = account balance − earmarks."""
+    __tablename__ = "earmarks"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    monthly_accrual: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    account: Mapped["Account"] = relationship()
+    events: Mapped[list["EarmarkEvent"]] = relationship(
+        back_populates="earmark",
+        cascade="all, delete-orphan",
+        order_by="EarmarkEvent.date.desc()",
+    )
+
+
+class EarmarkEvent(Base):
+    __tablename__ = "earmark_events"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    earmark_id: Mapped[str] = mapped_column(
+        ForeignKey("earmarks.id", ondelete="CASCADE"), nullable=False
+    )
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    # positive = set aside, negative = released / paid out
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    earmark: Mapped["Earmark"] = relationship(back_populates="events")
+
+
 class CategoryRule(Base):
     __tablename__ = "category_rules"
 

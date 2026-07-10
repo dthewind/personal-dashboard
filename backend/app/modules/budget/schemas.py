@@ -493,6 +493,50 @@ class RewardRuleOut(BaseModel):
     amount_used: DecimalJSON
 
 
+# ── Earmarks ───────────────────────────────────────────────────────────────────
+
+class EarmarkEventCreate(BaseModel):
+    date: datetime.date
+    amount: Decimal  # positive = set aside, negative = released / paid out
+    description: str | None = None
+
+
+class EarmarkEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    earmark_id: str
+    date: datetime.date
+    amount: DecimalJSON
+    description: str | None
+
+
+class EarmarkCreate(BaseModel):
+    name: str
+    account_id: str
+    monthly_accrual: Decimal | None = None
+    is_active: bool = True
+
+
+class EarmarkUpdate(BaseModel):
+    name: str | None = None
+    account_id: str | None = None
+    monthly_accrual: Decimal | None = None  # explicit null clears
+    is_active: bool | None = None
+
+
+class EarmarkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    account_id: str
+    monthly_accrual: DecimalJSON | None
+    is_active: bool
+    current_amount: DecimalJSON
+    events: list[EarmarkEventOut]
+
+
 # ── Budget Settings ────────────────────────────────────────────────────────────
 
 class BudgetSettingsOut(BaseModel):

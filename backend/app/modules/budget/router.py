@@ -12,6 +12,7 @@ from .schemas import (
     AllocationCreate, AllocationOut,
     BudgetSettingsOut, BudgetSettingsUpdate,
     CategoryRuleUpdate,
+    EarmarkCreate, EarmarkEventCreate, EarmarkOut, EarmarkUpdate,
     FixedBillCreate, FixedBillOut, FixedBillPaymentCreate, FixedBillPaymentOut, FixedBillUpdate,
     IncomePeriodCreate, IncomePeriodOut, IncomePeriodUpdate,
     LedgerBulkCreate, LedgerEntryCreate, LedgerEntryOut, LedgerEntryUpdate,
@@ -280,6 +281,48 @@ def update_promo_window(window_id: str, data: PromoAprWindowUpdate, db: Session 
 def delete_promo_window(window_id: str, db: Session = Depends(get_db)):
     if not crud.delete_promo_window(db, window_id):
         raise HTTPException(404, "Promo window not found")
+
+
+# ── Earmarks ───────────────────────────────────────────────────────────────────
+
+@router.get("/earmarks", response_model=list[EarmarkOut])
+def list_earmarks(include_inactive: bool = False, db: Session = Depends(get_db)):
+    return crud.get_earmarks(db, include_inactive=include_inactive)
+
+
+@router.post("/earmarks", response_model=EarmarkOut, status_code=201)
+def create_earmark(data: EarmarkCreate, db: Session = Depends(get_db)):
+    return crud.create_earmark(db, data)
+
+
+@router.patch("/earmarks/{earmark_id}", response_model=EarmarkOut)
+def update_earmark(earmark_id: str, data: EarmarkUpdate, db: Session = Depends(get_db)):
+    earmark = crud.update_earmark(db, earmark_id, data)
+    if not earmark:
+        raise HTTPException(404, "Earmark not found")
+    return earmark
+
+
+@router.delete("/earmarks/{earmark_id}", status_code=204)
+def delete_earmark(earmark_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_earmark(db, earmark_id):
+        raise HTTPException(404, "Earmark not found")
+
+
+@router.post("/earmarks/{earmark_id}/events", response_model=EarmarkOut, status_code=201)
+def create_earmark_event(earmark_id: str, data: EarmarkEventCreate, db: Session = Depends(get_db)):
+    earmark = crud.create_earmark_event(db, earmark_id, data)
+    if not earmark:
+        raise HTTPException(404, "Earmark not found")
+    return earmark
+
+
+@router.delete("/earmarks/{earmark_id}/events/{event_id}", response_model=EarmarkOut)
+def delete_earmark_event(earmark_id: str, event_id: str, db: Session = Depends(get_db)):
+    earmark = crud.delete_earmark_event(db, earmark_id, event_id)
+    if not earmark:
+        raise HTTPException(404, "Earmark event not found")
+    return earmark
 
 
 # ── Reward Rules ───────────────────────────────────────────────────────────────

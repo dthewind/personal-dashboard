@@ -3,16 +3,18 @@ import datetime
 from decimal import Decimal
 
 from sqlalchemy import extract, func, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .models import (
-    Account, AccountCredit, Allocation, BudgetSettings, CategoryRule, FixedBill,
+    Account, AccountCredit, Allocation, BudgetSettings, CategoryRule, Earmark,
+    EarmarkEvent, FixedBill,
     IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
     AllocationCreate,
     CategoryRuleUpdate,
+    EarmarkCreate, EarmarkEventCreate, EarmarkUpdate,
     FixedBillCreate, FixedBillUpdate,
     FixedBillPaymentCreate,
     IncomePeriodCreate, IncomePeriodUpdate,
@@ -820,6 +822,74 @@ def delete_reward_rule(db: Session, rule_id: str) -> bool:
     db.delete(rule)
     db.commit()
     return True
+
+
+# ── Earmarks ───────────────────────────────────────────────────────────────────
+
+def _with_earmark_total(earmark: Earmark) -> Earmark:
+    earmark.current_amount = sum((ev.amount for ev in earmark.events), Decimal("0"))
+    return earmark
+
+
+def get_earmarks(db: Session, include_inactive: bool = False) -> list[Earmark]:
+    q = select(Earmark).options(selectinload(Earmark.events)).order_by(Earmark.name)
+    if not include_inactive:
+        q = q.where(Earmark.is_active == True)  # noqa: E712
+    return [_with_earmark_total(e) for e in db.scalars(q).all()]
+
+
+def get_earmark(db: Session, earmark_id: str) -> Earmark | None:
+    earmark = db.get(Earmark, earmark_id)
+    return _with_earmark_total(earmark) if earmark else None
+
+
+def create_earmark(db: Session, data: EarmarkCreate) -> Earmark:
+    earmark = Earmark(**data.model_dump())
+    db.add(earmark)
+    db.commit()
+    db.refresh(earmark)
+    return _with_earmark_total(earmark)
+
+
+def update_earmark(db: Session, earmark_id: str, data: EarmarkUpdate) -> Earmark | None:
+    earmark = db.get(Earmark, earmark_id)
+    if not earmark:
+        return None
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(earmark, field, value)
+    db.commit()
+    db.refresh(earmark)
+    return _with_earmark_total(earmark)
+
+
+def delete_earmark(db: Session, earmark_id: str) -> bool:
+    earmark = db.get(Earmark, earmark_id)
+    if not earmark:
+        return False
+    db.delete(earmark)
+    db.commit()
+    return True
+
+
+def create_earmark_event(db: Session, earmark_id: str, data: EarmarkEventCreate) -> Earmark | None:
+    earmark = db.get(Earmark, earmark_id)
+    if not earmark:
+        return None
+    db.add(EarmarkEvent(earmark_id=earmark_id, **data.model_dump()))
+    db.commit()
+    db.refresh(earmark)
+    return _with_earmark_total(earmark)
+
+
+def delete_earmark_event(db: Session, earmark_id: str, event_id: str) -> Earmark | None:
+    event = db.get(EarmarkEvent, event_id)
+    if not event or event.earmark_id != earmark_id:
+        return None
+    db.delete(event)
+    db.commit()
+    earmark = db.get(Earmark, earmark_id)
+    db.refresh(earmark)
+    return _with_earmark_total(earmark)
 
 
 # ── Outlook (forward projection) ───────────────────────────────────────────────

@@ -2,6 +2,7 @@ import type {
   Account, AccountCreate,
   Allocation, AllocationCreate,
   CategoryStat,
+  Earmark, EarmarkCreate, EarmarkUpdate, EarmarkEventCreate,
   FixedBill, FixedBillCreate, FixedBillUpdate, FixedBillPayment,
   IncomePeriod, IncomePeriodCreate, IncomePeriodUpdate,
   LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate,
@@ -132,6 +133,19 @@ export const api = {
       req<Allocation | null>(`/allocation?month=${month}`),
     upsert: (data: AllocationCreate) =>
       req<Allocation>('/allocation', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  earmarks: {
+    list: () => req<Earmark[]>('/earmarks'),
+    create: (data: EarmarkCreate) =>
+      req<Earmark>('/earmarks', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: EarmarkUpdate) =>
+      req<Earmark>(`/earmarks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/earmarks/${id}`, { method: 'DELETE' }),
+    addEvent: (id: string, data: EarmarkEventCreate) =>
+      req<Earmark>(`/earmarks/${id}/events`, { method: 'POST', body: JSON.stringify(data) }),
+    deleteEvent: (id: string, eventId: string) =>
+      req<Earmark>(`/earmarks/${id}/events/${eventId}`, { method: 'DELETE' }),
   },
 
   promoWindows: {

@@ -379,6 +379,44 @@ export interface RewardRuleUpdate {
   amount_used?: number
 }
 
+export interface EarmarkEvent {
+  id: string
+  earmark_id: string
+  date: string
+  amount: number // positive = set aside, negative = released / paid out
+  description: string | null
+}
+
+export interface Earmark {
+  id: string
+  name: string
+  account_id: string
+  monthly_accrual: number | null
+  is_active: boolean
+  current_amount: number
+  events: EarmarkEvent[]
+}
+
+export interface EarmarkCreate {
+  name: string
+  account_id: string
+  monthly_accrual?: number | null
+  is_active?: boolean
+}
+
+export interface EarmarkUpdate {
+  name?: string
+  account_id?: string
+  monthly_accrual?: number | null
+  is_active?: boolean
+}
+
+export interface EarmarkEventCreate {
+  date: string
+  amount: number
+  description?: string | null
+}
+
 export interface MonthlySummary {
   month: string
   gross_income: number

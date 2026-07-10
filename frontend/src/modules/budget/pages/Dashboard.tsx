@@ -1,5 +1,6 @@
 ﻿import { useState, useMemo } from 'react'
 import PageShell from '../components/PageShell'
+import EarmarksCard from '../components/EarmarksCard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel, todayStr, toDateStr } from '../utils'
@@ -1780,6 +1781,9 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Effective savings / earmarks */}
+      <EarmarksCard accounts={allAccounts} />
 
       {/* Income this month */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
