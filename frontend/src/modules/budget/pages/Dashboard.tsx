@@ -1603,11 +1603,11 @@ export default function Dashboard() {
     },
   })
 
-  if (wLoading || aLoading) {
+  if (wLoading || aLoading || !waterfall) {
     return <div className="text-gray-500 text-sm">Loading...</div>
   }
 
-  const w = waterfall!
+  const w = waterfall
   const spentPct = w.max_spend > 0 ? Math.min((w.spent_to_date / w.max_spend) * 100, 100) : 0
   const remainingColor =
     w.remaining < 0
