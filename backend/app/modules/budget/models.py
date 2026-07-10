@@ -90,6 +90,10 @@ class FixedBill(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     category: Mapped[str | None] = mapped_column(String(100))
     merchant: Mapped[str | None] = mapped_column(String(200))
+    # optional date bounds (first-of-month) — only affect expected/projected months;
+    # past months always use actual payments
+    starts_month: Mapped[date | None] = mapped_column(Date)
+    ends_month: Mapped[date | None] = mapped_column(Date)
 
     account: Mapped["Account"] = relationship(back_populates="fixed_bills")
 

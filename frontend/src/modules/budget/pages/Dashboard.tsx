@@ -115,11 +115,19 @@ function Waterfall({ w, month, monthEnd, accounts }: { w: WaterfallData; month: 
     enabled: expanded === 'income',
   })
 
+  const { data: catStats } = useQuery({
+    queryKey: ['category-stats'],
+    queryFn: () => api.categoryStats(),
+    enabled: expanded === 'spent',
+  })
+
   function toggle(key: DrilldownKey) {
     setExpanded(prev => prev === key ? null : key)
   }
 
-  const variableExpenses = (allExpenses ?? []).filter(e => !e.bill_id)
+  // match the backend's spent_to_date: exclude bill payments AND excluded categories
+  const excludedCats = new Set((catStats ?? []).filter(c => c.exclude_from_spend).map(c => c.name))
+  const variableExpenses = (allExpenses ?? []).filter(e => !e.bill_id && !excludedCats.has(e.category ?? ''))
   const billExpenses = (allExpenses ?? []).filter(e => !!e.bill_id)
 
   return (
@@ -1353,6 +1361,9 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
       for (let mo = 0; mo <= 1; mo++) {
         const d = new Date(start.getFullYear(), start.getMonth() + mo, bill.due_day)
         if (d >= start && d <= horizon) {
+          const mKey = toDateStr(d).slice(0, 7) + '-01'
+          if (bill.starts_month && bill.starts_month > mKey) continue
+          if (bill.ends_month && bill.ends_month < mKey) continue
           result.push({
             date: toDateStr(d),
             label: bill.name,

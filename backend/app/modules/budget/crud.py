@@ -2,7 +2,7 @@ import calendar
 import datetime
 from decimal import Decimal
 
-from sqlalchemy import extract, func, select, update
+from sqlalchemy import extract, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -29,6 +29,19 @@ def _month_bounds(month: datetime.date) -> tuple[datetime.date, datetime.date]:
     if start.month == 12:
         return start, datetime.date(start.year + 1, 1, 1)
     return start, datetime.date(start.year, start.month + 1, 1)
+
+
+def _expected_fixed_total(db: Session, month: datetime.date) -> Decimal:
+    """Expected fixed-bill total for a given month, honoring optional
+    starts_month/ends_month bounds. Past months should use actual payments
+    instead — this is for the current month and projections only."""
+    return db.scalar(
+        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
+            FixedBill.is_active == True,  # noqa: E712
+            or_(FixedBill.starts_month.is_(None), FixedBill.starts_month <= month),
+            or_(FixedBill.ends_month.is_(None), FixedBill.ends_month >= month),
+        )
+    ) or Decimal("0")
 
 
 # ── Balance computation ────────────────────────────────────────────────────────
@@ -502,11 +515,7 @@ def get_waterfall(db: Session, pay_month: datetime.date, daily_budget: Decimal =
             )
         ) or Decimal("0")
     else:
-        fixed_total = db.scalar(
-            select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
-                FixedBill.is_active == True  # noqa: E712
-            )
-        ) or Decimal("0")
+        fixed_total = _expected_fixed_total(db, month_start)
 
     after_fixed = after_save - fixed_total
     max_spend = min(
@@ -823,12 +832,6 @@ def get_outlook(db: Session, months: int = 6) -> list[dict]:
     today = datetime.date.today()
     daily = get_settings(db).daily_budget
 
-    fixed_total = db.scalar(
-        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
-            FixedBill.is_active == True  # noqa: E712
-        )
-    ) or Decimal("0")
-
     allocations = list(db.scalars(select(Allocation).order_by(Allocation.pay_month)))
     periods = {
         p.pay_month.replace(day=1): p
@@ -857,6 +860,7 @@ def get_outlook(db: Session, months: int = 6) -> list[dict]:
 
         net = gross - fed - state - sep
         after_save = net - roth
+        fixed_total = _expected_fixed_total(db, month)  # honors bill date bounds per month
         after_fixed = after_save - fixed_total
         days = calendar.monthrange(month.year, month.month)[1]
         max_spend = min(Decimal(days) * daily, after_fixed)
@@ -922,11 +926,7 @@ def get_annual_summary(db: Session, year: int) -> list[dict]:
         )
     }
 
-    expected_fixed = db.scalar(
-        select(func.coalesce(func.sum(FixedBill.expected_amount), 0)).where(
-            FixedBill.is_active == True  # noqa: E712
-        )
-    ) or Decimal("0")
+    expected_fixed = _expected_fixed_total(db, current_month_start)
 
     daily = get_settings(db).daily_budget
 

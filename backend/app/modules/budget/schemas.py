@@ -225,6 +225,8 @@ class FixedBillCreate(BaseModel):
     is_active: bool = True
     category: str | None = None
     merchant: str | None = None
+    starts_month: datetime.date | None = None
+    ends_month: datetime.date | None = None
 
 
 class FixedBillUpdate(BaseModel):
@@ -236,6 +238,8 @@ class FixedBillUpdate(BaseModel):
     is_active: bool | None = None
     category: str | None = None
     merchant: str | None = None
+    starts_month: datetime.date | None = None  # explicit null clears
+    ends_month: datetime.date | None = None    # explicit null clears
 
 
 class FixedBillOut(BaseModel):
@@ -250,6 +254,8 @@ class FixedBillOut(BaseModel):
     is_active: bool
     category: str | None
     merchant: str | None
+    starts_month: datetime.date | None
+    ends_month: datetime.date | None
 
 
 class FixedBillPaymentCreate(BaseModel):

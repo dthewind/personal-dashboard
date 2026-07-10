@@ -154,6 +154,8 @@ export interface FixedBill {
   is_active: boolean
   category: string | null
   merchant: string | null
+  starts_month: string | null  // first-of-month; bounds only affect projections
+  ends_month: string | null
 }
 
 export interface FixedBillCreate {
@@ -165,6 +167,8 @@ export interface FixedBillCreate {
   is_active?: boolean
   category?: string
   merchant?: string
+  starts_month?: string
+  ends_month?: string
 }
 
 export interface FixedBillUpdate {
@@ -176,6 +180,8 @@ export interface FixedBillUpdate {
   is_active?: boolean
   category?: string
   merchant?: string
+  starts_month?: string | null  // explicit null clears
+  ends_month?: string | null
 }
 
 export interface FixedBillPayment {

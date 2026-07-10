@@ -56,6 +56,8 @@ function AddBillModal({
   const [amount, setAmount] = useState('')
   const [isEstimated, setIsEstimated] = useState(false)
   const [category, setCategory] = useState('')
+  const [startsMonth, setStartsMonth] = useState('')
+  const [endsMonth, setEndsMonth] = useState('')
 
   const valid = name.trim() && accountId && dueDay && amount && parseFloat(amount) > 0
 
@@ -172,6 +174,30 @@ function AddBillModal({
           </p>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Starts <span className="text-gray-600">(optional)</span></label>
+            <input
+              type="month"
+              value={startsMonth}
+              onChange={e => setStartsMonth(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Ends <span className="text-gray-600">(optional)</span></label>
+            <input
+              type="month"
+              value={endsMonth}
+              onChange={e => setEndsMonth(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <p className="col-span-2 text-xs text-gray-600 -mt-1.5">
+            Bounds only affect current/future projections — past months always use actual payments.
+          </p>
+        </div>
+
         <div className="flex gap-3 pt-1">
           <button
             onClick={onClose}
@@ -189,6 +215,8 @@ function AddBillModal({
                 expected_amount: parseFloat(amount),
                 is_estimated: isEstimated,
                 category: category.trim() || undefined,
+                starts_month: startsMonth ? startsMonth + '-01' : undefined,
+                ends_month: endsMonth ? endsMonth + '-01' : undefined,
               })
             }
             className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-medium"
@@ -222,6 +250,8 @@ function EditBillForm({
   const [amount, setAmount] = useState(String(bill.expected_amount))
   const [isEstimated, setIsEstimated] = useState(bill.is_estimated)
   const [category, setCategory] = useState(bill.category ?? '')
+  const [startsMonth, setStartsMonth] = useState(bill.starts_month?.slice(0, 7) ?? '')
+  const [endsMonth, setEndsMonth] = useState(bill.ends_month?.slice(0, 7) ?? '')
 
   const valid = name.trim() && accountId && dueDay && amount && parseFloat(amount) > 0
 
@@ -285,6 +315,24 @@ function EditBillForm({
             />
           </div>
         </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Starts <span className="text-gray-600">(optional)</span></label>
+          <input
+            type="month"
+            value={startsMonth}
+            onChange={e => setStartsMonth(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Ends <span className="text-gray-600">(optional)</span></label>
+          <input
+            type="month"
+            value={endsMonth}
+            onChange={e => setEndsMonth(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+          />
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -323,6 +371,8 @@ function EditBillForm({
               expected_amount: parseFloat(amount),
               is_estimated: isEstimated,
               category: category.trim() || undefined,
+              starts_month: startsMonth ? startsMonth + '-01' : null,
+              ends_month: endsMonth ? endsMonth + '-01' : null,
             })
           }
           className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
@@ -671,11 +721,16 @@ export default function Bills() {
     return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1
   }
 
+  // date bounds: is this bill expected in the viewed month?
+  const inMonth = (b: FixedBill) =>
+    (!b.starts_month || b.starts_month <= month) && (!b.ends_month || b.ends_month >= month)
+
   const active = (bills ?? []).filter(b => b.is_active).sort(billSort)
   const inactive = (bills ?? []).filter(b => !b.is_active).sort(billSort)
-  const fixedTotal = active.filter(b => !b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
-  const estimatedTotal = active.filter(b => b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
-  const paidCount = active.filter(b => paidMap[b.id]).length
+  const inScope = active.filter(inMonth)
+  const fixedTotal = inScope.filter(b => !b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
+  const estimatedTotal = inScope.filter(b => b.is_estimated).reduce((s, b) => s + b.expected_amount, 0)
+  const paidCount = inScope.filter(b => paidMap[b.id]).length
 
   return (
     <PageShell>
@@ -683,15 +738,15 @@ export default function Bills() {
         <div>
           {active.length > 0 && (
             <p className="text-sm text-gray-400 mt-0.5">
-              {active.length} bills ·{' '}
+              {inScope.length} bills ·{' '}
               <span className="text-white font-mono">{fmt(fixedTotal + estimatedTotal)}</span>/mo
               {estimatedTotal > 0 && (
                 <span className="text-gray-500 text-xs ml-1">
                   ({fmt(fixedTotal)} fixed + ~{fmt(estimatedTotal)} est.)
                 </span>
               )}
-              <span className={`ml-2 text-xs ${paidCount === active.length ? 'text-emerald-400' : 'text-gray-500'}`}>
-                · {paidCount}/{active.length} paid in {monthLabel(month)}
+              <span className={`ml-2 text-xs ${paidCount === inScope.length ? 'text-emerald-400' : 'text-gray-500'}`}>
+                · {paidCount}/{inScope.length} paid in {monthLabel(month)}
               </span>
             </p>
           )}
@@ -735,6 +790,8 @@ export default function Bills() {
             )
           }
 
+          const outOfMonth = !inMonth(bill)
+
           return (
             <div
               key={bill.id}
@@ -742,7 +799,7 @@ export default function Bills() {
                 payment
                   ? 'bg-emerald-950/20 border-emerald-900/40'
                   : 'bg-gray-900 border-gray-800'
-              }`}
+              } ${outOfMonth ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center gap-3">
                 {/* Due day badge */}
@@ -766,6 +823,16 @@ export default function Bills() {
                     {bill.is_estimated && (
                       <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
                         est.
+                      </span>
+                    )}
+                    {bill.starts_month && bill.starts_month > month && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-950/60 border border-indigo-800/50 text-indigo-300">
+                        starts {monthLabel(bill.starts_month)}
+                      </span>
+                    )}
+                    {bill.ends_month && bill.ends_month < month && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">
+                        ended {monthLabel(bill.ends_month)}
                       </span>
                     )}
                   </div>
