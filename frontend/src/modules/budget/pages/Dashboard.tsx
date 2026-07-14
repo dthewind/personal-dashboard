@@ -146,6 +146,10 @@ function Waterfall({ w, month, monthEnd, accounts }: { w: WaterfallData; month: 
       <WRow label="Fixed Bills" amount={w.fixed_bills_total} indent color="red"
         expandKey="bills" expanded={expanded === 'bills'} onToggle={() => toggle('bills')} />
       {expanded === 'bills' && <WaterfallDrilldown entries={billExpenses} accounts={accounts} emptyText="No bill payments this month." />}
+      <WRow label="After Fixed" amount={w.after_fixed} isTotal />
+      {w.after_fixed > w.max_spend && (
+        <WRow label="Uncommitted (above daily cap)" amount={w.after_fixed - w.max_spend} indent color="green" />
+      )}
       <WRow label="Max Spend" amount={w.max_spend} isTotal />
       <WRow label="Spent to Date" amount={w.spent_to_date} indent color="red"
         expandKey="spent" expanded={expanded === 'spent'} onToggle={() => toggle('spent')} />
@@ -321,7 +325,7 @@ function CreditAccountRow({ account, onEdit }: { account: Account; onEdit: () =>
       <td className="py-2 px-4">
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-200">{account.name}</span>
-          <button onClick={onEdit} className="text-xs text-gray-700 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onEdit} className="text-xs text-gray-600 hover:text-indigo-400 transition-colors">
             edit
           </button>
         </div>
@@ -356,7 +360,7 @@ function SimpleAccountRow({ account, onEdit }: { account: Account; onEdit: () =>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-200">{account.name}</span>
           <span className="text-xs text-gray-600 capitalize">{account.type}</span>
-          <button onClick={onEdit} className="text-xs text-gray-700 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onEdit} className="text-xs text-gray-600 hover:text-indigo-400 transition-colors">
             edit
           </button>
         </div>
@@ -1284,7 +1288,7 @@ function IncomeRunwayWidget({
   // 3-month avg variable spend from recent months
   const recent = annualData.slice(-3)
   const avgVariableSpend = recent.length > 0
-    ? recent.reduce((s, m) => s + m.total_spend - fixedBillsTotal, 0) / recent.length
+    ? recent.reduce((s, m) => s + m.variable_spend, 0) / recent.length
     : 0
 
   const monthlyBurn = fixedBillsTotal + Math.max(avgVariableSpend, 0)
@@ -1375,9 +1379,12 @@ function CashflowForecast({ accounts }: { accounts: Account[] }) {
       }
     }
 
-    // CC payments due
+    // CC payments due — only cards on autopay-full are a known cash outflow;
+    // minimum/manual payments (e.g. a carried 0%-APR promo balance) aren't
+    // actually drafted for the full balance, so including them here overstates
+    // 30-day cash need every single month.
     for (const cc of accounts.filter(a => a.type === 'credit_card')) {
-      if (!cc.due_day || cc.current_balance <= 0) continue
+      if (!cc.due_day || cc.current_balance <= 0 || cc.autopay !== 'full') continue
       for (let mo = 0; mo <= 1; mo++) {
         const d = new Date(start.getFullYear(), start.getMonth() + mo, cc.due_day)
         if (d >= start && d <= horizon) {
@@ -1704,32 +1711,37 @@ export default function Dashboard() {
         {w.days_left > 0 && w.remaining > 0 && (() => {
           const dynamic = w.daily_allowance_dynamic
           const configured = dailyBudget
+          const ratio = configured > 0 ? (dynamic - configured) / configured : 0
+          const pct = Math.max(-50, Math.min(50, ratio * 50))
+
+          let label: string
+          let labelColor: string
           if (dynamic > configured) {
             const excess = w.remaining - configured * w.days_left
-            return (
-              <div className="mt-4 pt-4 border-t border-gray-800/60 flex items-center gap-2">
-                <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Ahead</span>
-                <span className="text-xs text-gray-400">
-                  Spend <span className="text-white font-mono">{fmt(excess)}</span> more today to come back to <span className="text-white font-mono">{fmt(configured)}/day</span> pace.
-                </span>
-              </div>
-            )
-          }
-          if (dynamic < configured) {
+            label = `+${fmt(excess)}`
+            labelColor = 'text-emerald-400'
+          } else if (dynamic < configured) {
             const zeroDays = Math.ceil(w.days_left - w.remaining / configured)
             const dayWord = zeroDays === 1 ? 'day' : 'days'
-            return (
-              <div className="mt-4 pt-4 border-t border-gray-800/60 flex items-center gap-2">
-                <span className="text-xs font-medium text-amber-400 uppercase tracking-wider">Behind</span>
-                <span className="text-xs text-gray-400">
-                  <span className="text-white font-mono">{zeroDays}</span> zero-spend {dayWord} to recover to <span className="text-white font-mono">{fmt(configured)}/day</span> pace.
-                </span>
-              </div>
-            )
+            label = `${zeroDays} ${dayWord} to recover`
+            labelColor = 'text-red-400'
+          } else {
+            label = 'On pace'
+            labelColor = 'text-emerald-400'
           }
+
           return (
             <div className="mt-4 pt-4 border-t border-gray-800/60">
-              <span className="text-xs text-emerald-400">On pace</span>
+              <div className="relative h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                <div className="absolute inset-y-0 left-1/2 w-px bg-gray-600 z-10" />
+                {pct > 0 && (
+                  <div className="absolute inset-y-0 left-1/2 bg-emerald-500 rounded-r-full" style={{ width: `${pct}%` }} />
+                )}
+                {pct < 0 && (
+                  <div className="absolute inset-y-0 right-1/2 bg-red-500 rounded-l-full" style={{ width: `${-pct}%` }} />
+                )}
+              </div>
+              <div className={`mt-1.5 text-xs font-mono ${labelColor}`}>{label}</div>
             </div>
           )
         })()}

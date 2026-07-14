@@ -352,7 +352,7 @@ export default function LookupPage() {
                       <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => { setRenamingCat(c.name); setRenameValue(c.name) }}
-                          className="opacity-0 group-hover:opacity-100 text-xs text-gray-400 hover:text-indigo-400 transition-opacity"
+                          className="text-xs text-gray-500 hover:text-indigo-400 transition-colors"
                           title="Rename"
                         >
                           Rename
@@ -490,7 +490,7 @@ export default function LookupPage() {
                       </td>
                       <td className={tdCls + ' text-right tabular-nums'}>{m.count}</td>
                       <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => { setEditingMerchant(m); setEditName(m.name); setEditCat(m.default_category ?? '') }}
                             className="text-xs text-gray-400 hover:text-indigo-400"

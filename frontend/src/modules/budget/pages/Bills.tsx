@@ -761,7 +761,7 @@ export default function Bills() {
                 </div>
 
                 {/* Edit + Deactivate */}
-                <div className="flex items-center gap-1 ml-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 ml-1 flex-shrink-0">
                   <button
                     onClick={() => { setEditingId(bill.id); setPayingBill(null) }}
                     title="Edit"

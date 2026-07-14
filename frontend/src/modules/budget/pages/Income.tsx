@@ -581,7 +581,7 @@ function IncomeEntriesSection({ month, accounts }: { month: string; accounts: Ac
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0 ml-3">
                   <span className="text-sm font-mono text-emerald-400">{fmt(entry.amount)}</span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1">
                     <button
                       onClick={() => setEditingId(entry.id)}
                       className="text-gray-500 hover:text-gray-300 text-xs px-1"

@@ -772,7 +772,7 @@ export default function Transactions() {
                       <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                     </div>
                   ) : (
-                    <div className="flex gap-3 mt-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-3 mt-1 justify-end">
                       <button onClick={() => { setEditingId(entry.id); setConfirmDelete(null) }} className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">edit</button>
                       <button onClick={() => setConfirmDelete(entry.id)} className="text-xs text-gray-700 hover:text-red-400 transition-colors">delete</button>
                     </div>
@@ -811,7 +811,7 @@ export default function Transactions() {
                       <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                     </div>
                   ) : (
-                    <div className="flex gap-3 mt-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-3 mt-1 justify-end">
                       <button onClick={() => { setEditingId(entry.id); setConfirmDelete(null) }} className="text-xs text-gray-500 hover:text-emerald-400 transition-colors">edit</button>
                       <button onClick={() => setConfirmDelete(entry.id)} className="text-xs text-gray-700 hover:text-red-400 transition-colors">delete</button>
                     </div>
@@ -849,7 +849,7 @@ export default function Transactions() {
                       <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                     </div>
                   ) : (
-                    <div className="flex gap-3 mt-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-3 mt-1 justify-end">
                       <button onClick={() => { setEditingId(entry.id); setConfirmDelete(null) }} className="text-xs text-gray-500 hover:text-teal-400 transition-colors">edit</button>
                       <button onClick={() => setConfirmDelete(entry.id)} className="text-xs text-gray-700 hover:text-red-400 transition-colors">delete</button>
                     </div>
@@ -890,7 +890,7 @@ export default function Transactions() {
                       <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                     </div>
                   ) : (
-                    <div className="flex gap-3 mt-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-3 mt-1 justify-end">
                       {isOut && <button onClick={() => { setEditingId(entry.id); setConfirmDelete(null) }} className="text-xs text-gray-500 hover:text-amber-400 transition-colors">edit</button>}
                       <button onClick={() => setConfirmDelete(entry.id)} className="text-xs text-gray-700 hover:text-red-400 transition-colors">delete</button>
                     </div>
