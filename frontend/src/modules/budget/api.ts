@@ -10,6 +10,7 @@ import type {
   MonthlySummary, OutlookMonth,
   PromoAprWindow, PromoAprWindowCreate, PromoAprWindowUpdate,
   RewardRule, RewardRuleCreate, RewardRuleUpdate,
+  TbillHolding, TbillHoldingCreate, TbillHoldingUpdate, TbillHoldingMature, TbillHoldingMatureResult,
   WaterfallData,
 } from './types'
 
@@ -170,6 +171,17 @@ export const api = {
     update: (id: string, data: RewardRuleUpdate) =>
       req<RewardRule>(`/reward-rules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/reward-rules/${id}`, { method: 'DELETE' }),
+  },
+
+  tbillHoldings: {
+    list: () => req<TbillHolding[]>('/tbill-holdings'),
+    create: (data: TbillHoldingCreate) =>
+      req<TbillHolding>('/tbill-holdings', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: TbillHoldingUpdate) =>
+      req<TbillHolding>(`/tbill-holdings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/tbill-holdings/${id}`, { method: 'DELETE' }),
+    mature: (id: string, data: TbillHoldingMature) =>
+      req<TbillHoldingMatureResult>(`/tbill-holdings/${id}/mature`, { method: 'POST', body: JSON.stringify(data) }),
   },
 
   annualSummary: (year?: number) => {

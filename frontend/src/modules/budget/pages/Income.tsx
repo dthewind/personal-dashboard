@@ -2,7 +2,7 @@
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel } from '../utils'
+import { fmt, currentMonthStr, prevMonth, nextMonth, monthLabel, todayStr, toDateStr } from '../utils'
 import type {
   Account,
   AllocationCreate,
@@ -10,6 +10,7 @@ import type {
   LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate,
   IncomeType,
   MonthlySummary,
+  TbillHolding, TbillHoldingCreate, TbillHoldingUpdate, TbillHoldingMature,
 } from '../types'
 
 // ── Month navigation ──────────────────────────────────────────────────────────
@@ -743,6 +744,524 @@ function DeductionsSection({ month }: { month: string }) {
   )
 }
 
+// ── T-Bills ────────────────────────────────────────────────────────────────────
+
+function addWeeks(dateStr: string, weeks: number): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + weeks * 7)
+  return toDateStr(d)
+}
+
+function daysUntil(dateStr: string): number {
+  const target = new Date(dateStr + 'T00:00:00')
+  const today = new Date(todayStr() + 'T00:00:00')
+  return Math.round((target.getTime() - today.getTime()) / 86400000)
+}
+
+function shortDate(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function TbillHoldingForm({
+  accounts,
+  initial,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  accounts: Account[]
+  initial?: TbillHolding
+  onSave: (d: TbillHoldingCreate & { purchase_price: number | null }) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const cashAccounts = accounts.filter(a => a.type === 'checking' || a.type === 'savings')
+
+  const [accountId, setAccountId] = useState(initial?.account_id ?? cashAccounts[0]?.id ?? '')
+  const [purchaseDate, setPurchaseDate] = useState(initial?.purchase_date.slice(0, 10) ?? todayStr())
+  const [termWeeks, setTermWeeks] = useState(String(initial?.term_weeks ?? 4))
+  const [maturityDate, setMaturityDate] = useState(
+    initial?.maturity_date.slice(0, 10) ?? addWeeks(todayStr(), 4)
+  )
+  const [faceValue, setFaceValue] = useState(initial ? String(initial.face_value) : '')
+  const [purchasePrice, setPurchasePrice] = useState(
+    initial?.purchase_price != null ? String(initial.purchase_price) : ''
+  )
+  const [autoReinvest, setAutoReinvest] = useState(initial?.auto_reinvest ?? false)
+  const [cusip, setCusip] = useState(initial?.cusip ?? '')
+
+  function updatePurchaseDate(next: string) {
+    setPurchaseDate(next)
+    const weeks = parseInt(termWeeks, 10)
+    if (next && weeks > 0) setMaturityDate(addWeeks(next, weeks))
+  }
+
+  function updateTermWeeks(next: string) {
+    setTermWeeks(next)
+    const weeks = parseInt(next, 10)
+    if (purchaseDate && weeks > 0) setMaturityDate(addWeeks(purchaseDate, weeks))
+  }
+
+  const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-indigo-500'
+  const valid =
+    accountId && purchaseDate && maturityDate && parseInt(termWeeks, 10) > 0 && parseFloat(faceValue) > 0
+
+  return (
+    <div className="bg-gray-900 border border-indigo-600 rounded-xl p-5 space-y-4">
+      <div className="text-xs font-medium text-white uppercase tracking-wider">
+        {initial ? 'Edit T-Bill' : 'Plan T-Bill Purchase'}
+      </div>
+
+      {!initial && (
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Account</label>
+          {cashAccounts.length === 0 ? (
+            <p className="text-xs text-amber-400">Add a checking/savings account first.</p>
+          ) : (
+            <select value={accountId} onChange={e => setAccountId(e.target.value)} className={inputCls + ' w-full'}>
+              {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Start Date</label>
+          <input type="date" value={purchaseDate} onChange={e => updatePurchaseDate(e.target.value)} className={inputCls + ' w-full'} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Term (weeks)</label>
+          <input type="number" min="1" value={termWeeks} onChange={e => updateTermWeeks(e.target.value)} className={inputCls + ' w-full'} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Maturity Date</label>
+          <input type="date" value={maturityDate} onChange={e => setMaturityDate(e.target.value)} className={inputCls + ' w-full'} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">CUSIP (optional)</label>
+          <input value={cusip} onChange={e => setCusip(e.target.value)} className={inputCls + ' w-full'} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">T-Bill Value</label>
+          <input type="number" step="0.01" value={faceValue} onChange={e => setFaceValue(e.target.value)} placeholder="5000.00" className={inputCls + ' w-full'} />
+        </div>
+        {initial && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Cost (once known)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={purchasePrice}
+              onChange={e => setPurchasePrice(e.target.value)}
+              placeholder="pending"
+              className={inputCls + ' w-full'}
+            />
+          </div>
+        )}
+      </div>
+
+      <label className="flex items-center gap-2 text-sm text-gray-300">
+        <input type="checkbox" checked={autoReinvest} onChange={e => setAutoReinvest(e.target.checked)} className="rounded" />
+        Auto-reinvest at maturity
+      </label>
+
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg py-2 text-sm">
+          Cancel
+        </button>
+        <button
+          disabled={!valid || saving}
+          onClick={() =>
+            onSave({
+              account_id: accountId,
+              purchase_date: purchaseDate,
+              maturity_date: maturityDate,
+              term_weeks: parseInt(termWeeks, 10),
+              face_value: parseFloat(faceValue),
+              auto_reinvest: autoReinvest,
+              cusip: cusip.trim() || undefined,
+              purchase_price: purchasePrice.trim() === '' ? null : parseFloat(purchasePrice),
+            })
+          }
+          className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
+        >
+          {saving ? '…' : initial ? 'Save' : 'Plan'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MatureHoldingForm({
+  holding,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  holding: TbillHolding
+  onSave: (d: TbillHoldingMature) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const costKnown = holding.purchase_price != null
+  const [actualCost, setActualCost] = useState(costKnown ? String(holding.purchase_price) : '')
+  const [reinvest, setReinvest] = useState(holding.auto_reinvest)
+  const [nextMaturity, setNextMaturity] = useState(addWeeks(holding.maturity_date.slice(0, 10), holding.term_weeks))
+
+  const parsedCost = parseFloat(actualCost)
+  const interest = !isNaN(parsedCost) ? holding.face_value - parsedCost : null
+  const valid = costKnown || (actualCost.trim() !== '' && !isNaN(parsedCost))
+
+  const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-indigo-500'
+
+  return (
+    <div className="bg-gray-900 border border-emerald-600 rounded-xl p-4 space-y-3 mt-2">
+      <div className="text-xs font-medium text-white uppercase tracking-wider">Mark Matured</div>
+
+      {!costKnown && (
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Actual Cost (the debit that posted)</label>
+          <input
+            type="number"
+            step="0.01"
+            value={actualCost}
+            onChange={e => setActualCost(e.target.value)}
+            placeholder="4950.00"
+            className={inputCls + ' w-full'}
+          />
+        </div>
+      )}
+
+      <div className="text-xs text-gray-400">
+        Interest to log:{' '}
+        {interest != null ? (
+          <span className="font-mono text-emerald-400">{fmt(interest)}</span>
+        ) : (
+          <span className="text-gray-600">enter actual cost above</span>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-300">
+        <input type="checkbox" checked={reinvest} onChange={e => setReinvest(e.target.checked)} className="rounded" />
+        Reinvest proceeds into a new T-bill
+      </label>
+      {reinvest && (
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Next T-Bill Maturity</label>
+          <input
+            type="date"
+            value={nextMaturity}
+            onChange={e => setNextMaturity(e.target.value)}
+            className={inputCls + ' w-full'}
+          />
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg py-2 text-sm">
+          Cancel
+        </button>
+        <button
+          disabled={!valid || saving}
+          onClick={() =>
+            onSave({
+              actual_purchase_price: costKnown ? undefined : parsedCost,
+              reinvest,
+              next_maturity_date: reinvest ? nextMaturity : undefined,
+            })
+          }
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg py-2 text-sm font-medium"
+        >
+          {saving ? '…' : 'Confirm Maturity'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TbillHoldingsCard({ accounts }: { accounts: Account[] }) {
+  const qc = useQueryClient()
+  const [showPlan, setShowPlan] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [maturingId, setMaturingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+
+  const { data: holdings = [] } = useQuery({
+    queryKey: ['tbill-holdings'],
+    queryFn: () => api.tbillHoldings.list(),
+  })
+
+  function invalidateAll() {
+    qc.invalidateQueries({ queryKey: ['tbill-holdings'] })
+    qc.invalidateQueries({ queryKey: ['ledger'] })
+    qc.invalidateQueries({ queryKey: ['accounts'] })
+    qc.invalidateQueries({ queryKey: ['waterfall'] })
+  }
+
+  const createMutation = useMutation({
+    mutationFn: (data: TbillHoldingCreate) => api.tbillHoldings.create(data),
+    onSuccess: () => { invalidateAll(); setShowPlan(false) },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: TbillHoldingUpdate }) => api.tbillHoldings.update(id, data),
+    onSuccess: () => { invalidateAll(); setEditingId(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.tbillHoldings.delete(id),
+    onSuccess: () => { invalidateAll(); setConfirmDeleteId(null) },
+  })
+
+  const matureMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: TbillHoldingMature }) => api.tbillHoldings.mature(id, data),
+    onSuccess: () => { invalidateAll(); setMaturingId(null) },
+  })
+
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+  const today = todayStr()
+  const notMatured = holdings.filter(h => h.status !== 'matured')
+  // pre-buying vs after-purchase is derived purely from purchase_date vs today —
+  // no manual "mark purchased" step, the date itself drives the transition
+  const planned = notMatured.filter(h => h.purchase_date > today).sort((a, b) => a.purchase_date.localeCompare(b.purchase_date))
+  const active = notMatured.filter(h => h.purchase_date <= today).sort((a, b) => a.maturity_date.localeCompare(b.maturity_date))
+  const matured = holdings.filter(h => h.status === 'matured').sort((a, b) => b.maturity_date.localeCompare(a.maturity_date))
+
+  const totalPrincipal = active.reduce((s, h) => s + (h.purchase_price ?? h.face_value), 0)
+  const nextMaturity = active[0]?.maturity_date
+  const knownYield = active.filter(h => h.implied_apy != null && h.purchase_price != null)
+  const yieldBasis = knownYield.reduce((s, h) => s + (h.purchase_price ?? 0), 0)
+  const blendedApy = yieldBasis > 0
+    ? knownYield.reduce((s, h) => s + (h.implied_apy ?? 0) * (h.purchase_price ?? 0), 0) / yieldBasis
+    : null
+
+  function renderEditRow(holding: TbillHolding) {
+    return (
+      <div key={holding.id} className="mb-2">
+        <TbillHoldingForm
+          accounts={accounts}
+          initial={holding}
+          onSave={data =>
+            updateMutation.mutate({
+              id: holding.id,
+              data: {
+                purchase_date: data.purchase_date,
+                maturity_date: data.maturity_date,
+                term_weeks: data.term_weeks,
+                face_value: data.face_value,
+                auto_reinvest: data.auto_reinvest,
+                cusip: data.cusip,
+                purchase_price: data.purchase_price,
+              },
+            })
+          }
+          onCancel={() => setEditingId(null)}
+          saving={updateMutation.isPending}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs font-medium text-white uppercase tracking-wider">T-Bills</h2>
+        {!showPlan && (
+          <button onClick={() => setShowPlan(true)} className="text-xs text-indigo-400 hover:text-indigo-300">
+            + Plan
+          </button>
+        )}
+      </div>
+
+      {showPlan && (
+        <div className="mb-4">
+          <TbillHoldingForm
+            accounts={accounts}
+            onSave={data => createMutation.mutate({
+              account_id: data.account_id,
+              purchase_date: data.purchase_date,
+              maturity_date: data.maturity_date,
+              term_weeks: data.term_weeks,
+              face_value: data.face_value,
+              auto_reinvest: data.auto_reinvest,
+              cusip: data.cusip,
+            })}
+            onCancel={() => setShowPlan(false)}
+            saving={createMutation.isPending}
+          />
+        </div>
+      )}
+
+      {planned.length === 0 && active.length === 0 && !showPlan && (
+        <p className="text-gray-600 text-sm">No T-bills yet.</p>
+      )}
+
+      {planned.length > 0 && (
+        <div className="mb-5">
+          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Upcoming</h3>
+          <div className="space-y-1">
+            {planned.map(holding => {
+              if (editingId === holding.id) return renderEditRow(holding)
+
+              const days = daysUntil(holding.purchase_date)
+
+              return (
+                <div key={holding.id} className="py-2 border-b border-gray-800 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm text-gray-200">{fmt(holding.face_value)}</span>
+                        <span className="text-xs text-gray-500">{holding.term_weeks}wk</span>
+                        {holding.auto_reinvest && <span className="text-xs text-indigo-400">↻ reinvest</span>}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        {accountMap[holding.account_id] ?? 'Unknown'} · starts {shortDate(holding.purchase_date)}
+                        {' · '}
+                        {days > 0 ? `${days}d until buy` : days === 0 ? 'buy today' : `${-days}d overdue`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => setEditingId(holding.id)} className="text-gray-500 hover:text-gray-300 text-xs px-1" title="Edit">
+                          ✎
+                        </button>
+                        {confirmDeleteId === holding.id ? (
+                          <>
+                            <button onClick={() => deleteMutation.mutate(holding.id)} className="text-red-400 hover:text-red-300 text-xs px-1">
+                              Confirm
+                            </button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="text-gray-500 hover:text-gray-300 text-xs px-1">
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteId(holding.id)} className="text-gray-600 hover:text-red-400 text-xs px-1" title="Delete">
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div>
+          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Active</h3>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div>
+              <div className="text-xs text-gray-500">Principal Committed</div>
+              <div className="text-white font-mono text-sm mt-0.5">{fmt(totalPrincipal)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Next Maturity</div>
+              <div className="text-white font-mono text-sm mt-0.5">{nextMaturity ? shortDate(nextMaturity) : '—'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Blended APY</div>
+              <div className="text-emerald-400 font-mono text-sm mt-0.5">
+                {blendedApy != null ? `${blendedApy.toFixed(2)}%` : '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            {active.map(holding => {
+              if (editingId === holding.id) return renderEditRow(holding)
+
+              const days = daysUntil(holding.maturity_date)
+
+              return (
+                <div key={holding.id} className="py-2 border-b border-gray-800 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm text-gray-200">{fmt(holding.face_value)}</span>
+                        <span className="text-xs text-gray-500">{holding.term_weeks}wk</span>
+                        {holding.auto_reinvest && <span className="text-xs text-indigo-400">↻ reinvest</span>}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        {accountMap[holding.account_id] ?? 'Unknown'} · matures {shortDate(holding.maturity_date)}
+                        {' · '}
+                        {days > 0 ? `${days}d left` : days === 0 ? 'matures today' : `${-days}d overdue`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                      <span className="text-sm font-mono text-emerald-400">
+                        {holding.implied_apy != null ? `${holding.implied_apy.toFixed(2)}%` : 'cost pending'}
+                      </span>
+                      <div className="flex gap-1">
+                        <button onClick={() => setEditingId(holding.id)} className="text-gray-500 hover:text-gray-300 text-xs px-1" title="Edit">
+                          ✎
+                        </button>
+                        <button
+                          onClick={() => setMaturingId(maturingId === holding.id ? null : holding.id)}
+                          className="text-xs text-emerald-400 hover:text-emerald-300 px-1"
+                        >
+                          Mature
+                        </button>
+                        {confirmDeleteId === holding.id ? (
+                          <>
+                            <button onClick={() => deleteMutation.mutate(holding.id)} className="text-red-400 hover:text-red-300 text-xs px-1">
+                              Confirm
+                            </button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="text-gray-500 hover:text-gray-300 text-xs px-1">
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteId(holding.id)} className="text-gray-600 hover:text-red-400 text-xs px-1" title="Delete">
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {maturingId === holding.id && (
+                    <MatureHoldingForm
+                      holding={holding}
+                      onSave={data => matureMutation.mutate({ id: holding.id, data })}
+                      onCancel={() => setMaturingId(null)}
+                      saving={matureMutation.isPending}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {matured.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-gray-800">
+          <button onClick={() => setShowHistory(s => !s)} className="text-xs text-gray-500 hover:text-gray-300">
+            {showHistory ? '▾' : '▸'} History ({matured.length})
+          </button>
+          {showHistory && (
+            <div className="space-y-1 mt-2">
+              {matured.map(holding => (
+                <div key={holding.id} className="flex items-center justify-between py-1.5 text-xs text-gray-500">
+                  <span>
+                    {holding.purchase_price != null ? fmt(holding.purchase_price) : '—'} → {fmt(holding.face_value)} ({holding.term_weeks}wk, matured {shortDate(holding.maturity_date)})
+                    {holding.next_holding_id && ' · rolled'}
+                  </span>
+                  <span className="font-mono text-emerald-500">
+                    {holding.interest != null ? `+${fmt(holding.interest)}` : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── SEP-IRA Headroom ──────────────────────────────────────────────────────────
 
 const SEP_CAP_2025 = 69000
@@ -873,6 +1392,7 @@ export default function IncomePage() {
       <IncomeEntriesSection month={month} accounts={accounts} />
       <DeductionsSection month={month} />
       {annualData.length > 0 && <SEPHeadroomWidget annualData={annualData} />}
+      <TbillHoldingsCard accounts={accounts} />
       <SummarySection month={month} />
     </PageShell>
   )

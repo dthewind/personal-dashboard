@@ -417,6 +417,61 @@ export interface EarmarkEventCreate {
   description?: string | null
 }
 
+export interface TbillHolding {
+  id: string
+  account_id: string
+  purchase_date: string
+  maturity_date: string
+  term_weeks: number
+  face_value: number
+  purchase_price: number | null
+  auto_reinvest: boolean
+  discount_rate: number | null
+  cusip: string | null
+  notes: string | null
+  status: 'active' | 'matured'
+  income_entry_id: string | null
+  next_holding_id: string | null
+  interest: number | null
+  implied_apy: number | null
+}
+
+export interface TbillHoldingCreate {
+  account_id: string
+  purchase_date: string
+  maturity_date: string
+  term_weeks: number
+  face_value: number
+  auto_reinvest?: boolean
+  discount_rate?: number | null
+  cusip?: string | null
+  notes?: string | null
+}
+
+export interface TbillHoldingUpdate {
+  purchase_date?: string
+  maturity_date?: string
+  term_weeks?: number
+  face_value?: number
+  purchase_price?: number | null
+  auto_reinvest?: boolean
+  discount_rate?: number | null
+  cusip?: string | null
+  notes?: string | null
+}
+
+export interface TbillHoldingMature {
+  actual_purchase_price?: number
+  reinvest?: boolean
+  next_maturity_date?: string
+  next_face_value?: number
+}
+
+export interface TbillHoldingMatureResult {
+  holding: TbillHolding
+  next_holding: TbillHolding | null
+}
+
 export interface MonthlySummary {
   month: string
   gross_income: number

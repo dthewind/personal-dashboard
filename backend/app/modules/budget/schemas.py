@@ -537,6 +537,65 @@ class EarmarkOut(BaseModel):
     events: list[EarmarkEventOut]
 
 
+# ── T-Bill Holdings ────────────────────────────────────────────────────────────
+
+class TbillHoldingCreate(BaseModel):
+    account_id: str
+    purchase_date: datetime.date
+    maturity_date: datetime.date
+    term_weeks: int
+    face_value: Decimal
+    auto_reinvest: bool = False
+    discount_rate: Decimal | None = None
+    cusip: str | None = None
+    notes: str | None = None
+
+
+class TbillHoldingUpdate(BaseModel):
+    purchase_date: datetime.date | None = None
+    maturity_date: datetime.date | None = None
+    term_weeks: int | None = None
+    face_value: Decimal | None = None
+    purchase_price: Decimal | None = None  # how cost gets filled in once known
+    auto_reinvest: bool | None = None
+    discount_rate: Decimal | None = None
+    cusip: str | None = None
+    notes: str | None = None
+
+
+class TbillHoldingMature(BaseModel):
+    actual_purchase_price: Decimal | None = None  # fallback if cost was never filled in
+    reinvest: bool | None = None  # overrides the holding's auto_reinvest flag if set
+    next_maturity_date: datetime.date | None = None
+    next_face_value: Decimal | None = None
+
+
+class TbillHoldingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    account_id: str
+    purchase_date: datetime.date
+    maturity_date: datetime.date
+    term_weeks: int
+    face_value: DecimalJSON
+    purchase_price: DecimalJSON | None
+    auto_reinvest: bool
+    discount_rate: DecimalJSON | None
+    cusip: str | None
+    notes: str | None
+    status: str
+    income_entry_id: str | None
+    next_holding_id: str | None
+    interest: DecimalJSON | None
+    implied_apy: DecimalJSON | None
+
+
+class TbillHoldingMatureResult(BaseModel):
+    holding: TbillHoldingOut
+    next_holding: TbillHoldingOut | None = None
+
+
 # ── Budget Settings ────────────────────────────────────────────────────────────
 
 class BudgetSettingsOut(BaseModel):

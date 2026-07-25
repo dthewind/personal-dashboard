@@ -19,6 +19,7 @@ from .schemas import (
     MerchantOut,
     PromoAprWindowCreate, PromoAprWindowOut, PromoAprWindowUpdate,
     RewardRuleCreate, RewardRuleOut, RewardRuleUpdate,
+    TbillHoldingCreate, TbillHoldingMature, TbillHoldingMatureResult, TbillHoldingOut, TbillHoldingUpdate,
     TransferPairCreate,
     WaterfallOut,
 )
@@ -323,6 +324,40 @@ def delete_earmark_event(earmark_id: str, event_id: str, db: Session = Depends(g
     if not earmark:
         raise HTTPException(404, "Earmark event not found")
     return earmark
+
+
+# ── T-Bill Holdings ────────────────────────────────────────────────────────────
+
+@router.get("/tbill-holdings", response_model=list[TbillHoldingOut])
+def list_tbill_holdings(db: Session = Depends(get_db)):
+    return crud.get_tbill_holdings(db)
+
+
+@router.post("/tbill-holdings", response_model=TbillHoldingOut, status_code=201)
+def create_tbill_holding(data: TbillHoldingCreate, db: Session = Depends(get_db)):
+    return crud.create_tbill_holding(db, data)
+
+
+@router.patch("/tbill-holdings/{holding_id}", response_model=TbillHoldingOut)
+def update_tbill_holding(holding_id: str, data: TbillHoldingUpdate, db: Session = Depends(get_db)):
+    holding = crud.update_tbill_holding(db, holding_id, data)
+    if not holding:
+        raise HTTPException(404, "T-bill holding not found or already matured")
+    return holding
+
+
+@router.delete("/tbill-holdings/{holding_id}", status_code=204)
+def delete_tbill_holding(holding_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_tbill_holding(db, holding_id):
+        raise HTTPException(404, "T-bill holding not found or already matured")
+
+
+@router.post("/tbill-holdings/{holding_id}/mature", response_model=TbillHoldingMatureResult)
+def mature_tbill_holding(holding_id: str, data: TbillHoldingMature, db: Session = Depends(get_db)):
+    result = crud.mature_tbill_holding(db, holding_id, data)
+    if not result:
+        raise HTTPException(404, "T-bill holding not found or not active")
+    return result
 
 
 # ── Reward Rules ───────────────────────────────────────────────────────────────

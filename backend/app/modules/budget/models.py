@@ -301,6 +301,38 @@ class LedgerEntry(Base):
     merchant_ref: Mapped["Merchant | None"] = relationship()
 
 
+class TbillHolding(Base):
+    """A T-bill tracked as an extension of the savings/checking account holding
+    the money — purchase has no ledger/balance effect (the account balance
+    already includes this cash; we're only annotating that part of it is
+    temporarily committed). face_value is fixed at purchase (what you requested);
+    purchase_price is unknown until the discount-price debit actually posts, so
+    it starts null and gets filled in later via edit. Reinvested holdings chain
+    via next_holding_id — a holding's lifecycle is just active -> matured.
+    Whether a holding is "pre-buying" or "after purchase" is derived purely from
+    comparing purchase_date to today (no separate stored status for it) — the
+    date itself is what drives that transition, not a manual action."""
+    __tablename__ = "tbill_holdings"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
+    maturity_date: Mapped[date] = mapped_column(Date, nullable=False)
+    term_weeks: Mapped[int] = mapped_column(Integer, nullable=False)
+    face_value: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    discount_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    auto_reinvest: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cusip: Mapped[str | None] = mapped_column(String(20))
+    notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="active")  # active | matured
+
+    income_entry_id: Mapped[str | None] = mapped_column(ForeignKey("ledger_entries.id"))
+    next_holding_id: Mapped[str | None] = mapped_column(ForeignKey("tbill_holdings.id"))
+
+    account: Mapped["Account"] = relationship()
+
+
 class BudgetSettings(Base):
     __tablename__ = "budget_settings"
 

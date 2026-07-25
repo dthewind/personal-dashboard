@@ -2,13 +2,14 @@ import calendar
 import datetime
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import extract, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .models import (
     Account, AccountCredit, Allocation, BudgetSettings, CategoryRule, Earmark,
     EarmarkEvent, FixedBill,
-    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, Transaction, Transfer,
+    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, TbillHolding, Transaction, Transfer,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
@@ -21,6 +22,7 @@ from .schemas import (
     LedgerEntryCreate, LedgerEntryUpdate, LedgerBulkCreate, TransferPairCreate,
     PromoAprWindowCreate, PromoAprWindowUpdate,
     RewardRuleCreate, RewardRuleUpdate,
+    TbillHoldingCreate, TbillHoldingMature, TbillHoldingUpdate,
     WaterfallOut,
 )
 
@@ -292,17 +294,21 @@ def delete_ledger_entry(db: Session, entry_id: str) -> bool:
         return False
 
     affected = {entry.account_id}
-    linked_id = entry.linked_entry_id
+    linked = db.get(LedgerEntry, entry.linked_entry_id) if entry.linked_entry_id else None
 
-    db.delete(entry)
+    # break the mutual linked_entry_id reference before deleting either row —
+    # deleting one side first violates the self-referencing FK while the other
+    # side still points at it
+    entry.linked_entry_id = None
+    if linked:
+        linked.linked_entry_id = None
+        affected.add(linked.account_id)
     db.flush()
 
-    if linked_id:
-        linked = db.get(LedgerEntry, linked_id)
-        if linked:
-            affected.add(linked.account_id)
-            db.delete(linked)
-            db.flush()
+    db.delete(entry)
+    if linked:
+        db.delete(linked)
+    db.flush()
 
     for aid in affected:
         recompute_balance(db, aid)
@@ -890,6 +896,126 @@ def delete_earmark_event(db: Session, earmark_id: str, event_id: str) -> Earmark
     earmark = db.get(Earmark, earmark_id)
     db.refresh(earmark)
     return _with_earmark_total(earmark)
+
+
+# ── T-Bill Holdings ────────────────────────────────────────────────────────────
+
+def _with_tbill_computed(holding: TbillHolding) -> TbillHolding:
+    if holding.purchase_price is None:
+        holding.interest = None
+        holding.implied_apy = None
+        return holding
+
+    holding.interest = holding.face_value - holding.purchase_price
+    days = (holding.maturity_date - holding.purchase_date).days
+    if holding.purchase_price and days > 0:
+        ratio = float(holding.face_value) / float(holding.purchase_price)
+        apy = (ratio ** (365 / days) - 1) * 100
+        holding.implied_apy = Decimal(str(round(apy, 4)))
+    else:
+        holding.implied_apy = Decimal("0")
+    return holding
+
+
+def get_tbill_holdings(db: Session) -> list[TbillHolding]:
+    holdings = list(db.scalars(select(TbillHolding).order_by(TbillHolding.maturity_date)).all())
+    return [_with_tbill_computed(h) for h in holdings]
+
+
+def create_tbill_holding(db: Session, data: TbillHoldingCreate) -> TbillHolding:
+    # purchase has no ledger/balance effect — the account balance already
+    # includes this cash; we're only annotating that part of it is committed
+    holding = TbillHolding(**data.model_dump())
+    db.add(holding)
+    db.commit()
+    db.refresh(holding)
+    return _with_tbill_computed(holding)
+
+
+def update_tbill_holding(db: Session, holding_id: str, data: TbillHoldingUpdate) -> TbillHolding | None:
+    holding = db.get(TbillHolding, holding_id)
+    if not holding or holding.status == "matured":
+        return None
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(holding, field, value)
+
+    db.commit()
+    db.refresh(holding)
+    return _with_tbill_computed(holding)
+
+
+def delete_tbill_holding(db: Session, holding_id: str) -> bool:
+    holding = db.get(TbillHolding, holding_id)
+    if not holding or holding.status == "matured":
+        return False
+    # no ledger cleanup needed — purchase never touched the ledger
+    db.delete(holding)
+    db.commit()
+    return True
+
+
+def mature_tbill_holding(db: Session, holding_id: str, data: TbillHoldingMature) -> dict | None:
+    holding = db.get(TbillHolding, holding_id)
+    if not holding or holding.status != "active":
+        return None
+
+    final_price = data.actual_purchase_price if data.actual_purchase_price is not None else holding.purchase_price
+    if final_price is None:
+        raise HTTPException(400, "Purchase price unknown — enter the actual cost before marking matured")
+
+    reinvest = data.reinvest if data.reinvest is not None else holding.auto_reinvest
+    interest = holding.face_value - final_price
+
+    income_entry = LedgerEntry(
+        id=_uuid(),
+        date=holding.maturity_date,
+        account_id=holding.account_id,
+        amount=interest,
+        type="income",
+        subtype="tbill",
+        notes=f"T-bill interest — {holding.term_weeks}wk, matured {holding.maturity_date}",
+    )
+    db.add(income_entry)
+    db.flush()
+    recompute_balance(db, holding.account_id)
+
+    holding.purchase_price = final_price
+    holding.income_entry_id = income_entry.id
+    holding.status = "matured"
+
+    next_holding = None
+    if reinvest:
+        next_maturity = data.next_maturity_date or (
+            holding.maturity_date + datetime.timedelta(weeks=holding.term_weeks)
+        )
+        next_face_value = (
+            data.next_face_value if data.next_face_value is not None
+            else holding.face_value
+        )
+
+        next_holding = TbillHolding(
+            id=_uuid(),
+            account_id=holding.account_id,
+            purchase_date=holding.maturity_date,
+            maturity_date=next_maturity,
+            term_weeks=holding.term_weeks,
+            face_value=next_face_value,
+            purchase_price=None,
+            auto_reinvest=holding.auto_reinvest,
+            status="active",
+        )
+        db.add(next_holding)
+        db.flush()
+        holding.next_holding_id = next_holding.id
+
+    db.commit()
+    db.refresh(holding)
+    result = {"holding": _with_tbill_computed(holding)}
+    if next_holding:
+        db.refresh(next_holding)
+        result["next_holding"] = _with_tbill_computed(next_holding)
+    return result
 
 
 # ── Outlook (forward projection) ───────────────────────────────────────────────
