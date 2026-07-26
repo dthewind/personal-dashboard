@@ -64,46 +64,7 @@ class AccountOut(BaseModel):
     is_active: bool
 
 
-# ── Transactions ───────────────────────────────────────────────────────────────
-
 TransactionTag = Literal["fixed", "variable", "one_off"]
-
-
-class TransactionCreate(BaseModel):
-    date: datetime.date
-    account_id: str
-    amount: Decimal
-    category: str
-    merchant: str
-    tag: TransactionTag = "variable"
-    notes: str | None = None
-    reward_rule_id: str | None = None
-
-
-class TransactionUpdate(BaseModel):
-    date: datetime.date | None = None
-    account_id: str | None = None
-    amount: Decimal | None = None
-    category: str | None = None
-    merchant: str | None = None
-    tag: TransactionTag | None = None
-    notes: str | None = None
-    reward_rule_id: str | None = None
-
-
-class TransactionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    date: datetime.date
-    account_id: str
-    amount: DecimalJSON
-    category: str
-    merchant: str
-    tag: TransactionTag
-    notes: str | None
-    reward_rule_id: str | None
-    bill_id: str | None
 
 
 # ── Merchants ──────────────────────────────────────────────────────────────────
@@ -276,9 +237,6 @@ class FixedBillPaymentOut(BaseModel):
 
 # ── Income ─────────────────────────────────────────────────────────────────────
 
-IncomeType = Literal["contract", "interest", "tbill", "investment", "other"]
-
-
 class IncomePeriodCreate(BaseModel):
     work_month: datetime.date
     pay_month: datetime.date
@@ -307,65 +265,6 @@ class IncomePeriodOut(BaseModel):
     gross_actual: DecimalJSON
 
 
-class IncomeEntryCreate(BaseModel):
-    period_id: str | None = None
-    type: IncomeType
-    amount: Decimal
-    description: str
-    received_date: datetime.date
-    to_account_id: str | None = None
-
-
-class IncomeEntryUpdate(BaseModel):
-    period_id: str | None = None
-    type: IncomeType | None = None
-    amount: Decimal | None = None
-    description: str | None = None
-    received_date: datetime.date | None = None
-    to_account_id: str | None = None
-
-
-class IncomeEntryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    period_id: str | None
-    type: IncomeType
-    amount: DecimalJSON
-    description: str
-    received_date: datetime.date
-    to_account_id: str | None
-
-
-# ── Transfers ──────────────────────────────────────────────────────────────────
-
-class TransferCreate(BaseModel):
-    from_account_id: str
-    to_account_id: str
-    amount: Decimal
-    date: datetime.date
-    description: str
-
-
-class TransferUpdate(BaseModel):
-    from_account_id: str | None = None
-    to_account_id: str | None = None
-    amount: Decimal | None = None
-    date: datetime.date | None = None
-    description: str | None = None
-
-
-class TransferOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    from_account_id: str
-    to_account_id: str
-    amount: DecimalJSON
-    date: datetime.date
-    description: str
-
-
 # ── Allocation ─────────────────────────────────────────────────────────────────
 
 class AllocationCreate(BaseModel):
@@ -385,42 +284,6 @@ class AllocationOut(BaseModel):
     state_tax: DecimalJSON
     sep_contribution: DecimalJSON
     roth_contribution: DecimalJSON
-
-
-class TransactionBulkCreate(BaseModel):
-    transactions: list[TransactionCreate]
-
-
-# ── Account Credits ─────────────────────────────────────────────────────────────
-
-class AccountCreditUpdate(BaseModel):
-    account_id: str | None = None
-    amount: Decimal | None = None
-    date: datetime.date | None = None
-    description: str | None = None
-    credit_type: str | None = None
-    category: str | None = None
-
-
-class AccountCreditCreate(BaseModel):
-    account_id: str
-    amount: Decimal
-    date: datetime.date
-    description: str
-    credit_type: str = "cashback"
-    category: str | None = None
-
-
-class AccountCreditOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    account_id: str
-    amount: DecimalJSON
-    date: datetime.date
-    description: str
-    credit_type: str
-    category: str | None
 
 
 # ── Promo APR Windows ──────────────────────────────────────────────────────────

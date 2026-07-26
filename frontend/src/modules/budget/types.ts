@@ -93,31 +93,6 @@ export interface TransferPairCreate {
   description?: string
 }
 
-// ── Legacy types (kept for Bills/Income period forms) ─────────────────────────
-
-export interface Transaction {
-  id: string
-  date: string
-  account_id: string
-  amount: number
-  category: string
-  merchant: string
-  tag: TransactionTag
-  notes: string | null
-  reward_rule_id: string | null
-  bill_id: string | null
-}
-
-export interface TransactionCreate {
-  date: string
-  account_id: string
-  amount: number
-  category: string
-  merchant: string
-  tag: TransactionTag
-  notes?: string
-}
-
 export interface Merchant {
   id: string
   name: string
@@ -218,85 +193,6 @@ export interface IncomePeriodUpdate {
   planned_hours?: number
   actual_hours?: number
   hourly_rate?: number
-}
-
-export interface IncomeEntry {
-  id: string
-  period_id: string | null
-  type: IncomeType
-  amount: number
-  description: string
-  received_date: string
-  to_account_id: string | null
-}
-
-export interface IncomeEntryCreate {
-  type: IncomeType
-  amount: number
-  description: string
-  received_date: string
-  to_account_id: string  // required — income must be linked to an account
-}
-
-export interface IncomeEntryUpdate {
-  type?: IncomeType
-  amount?: number
-  description?: string
-  received_date?: string
-  to_account_id?: string
-}
-
-export interface AccountCredit {
-  id: string
-  account_id: string
-  amount: number
-  date: string
-  description: string
-  credit_type: string
-  category: string | null
-}
-
-export interface AccountCreditUpdate {
-  account_id?: string
-  amount?: number
-  date?: string
-  description?: string
-  credit_type?: string
-  category?: string | null
-}
-
-export interface AccountCreditCreate {
-  account_id: string
-  amount: number
-  date: string
-  description: string
-  credit_type: string
-  category?: string
-}
-
-export interface Transfer {
-  id: string
-  from_account_id: string
-  to_account_id: string
-  amount: number
-  date: string
-  description: string
-}
-
-export interface TransferUpdate {
-  from_account_id?: string
-  to_account_id?: string
-  amount?: number
-  date?: string
-  description?: string
-}
-
-export interface TransferCreate {
-  from_account_id: string
-  to_account_id: string
-  amount: number
-  date: string
-  description: string
 }
 
 export interface Allocation {

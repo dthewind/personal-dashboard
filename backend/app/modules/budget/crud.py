@@ -7,9 +7,9 @@ from sqlalchemy import extract, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .models import (
-    Account, AccountCredit, Allocation, BudgetSettings, CategoryRule, Earmark,
+    Account, Allocation, BudgetSettings, CategoryRule, Earmark,
     EarmarkEvent, FixedBill,
-    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, TbillHolding, Transaction, Transfer,
+    IncomePeriod, LedgerEntry, Merchant, PromoAprWindow, RewardRule, TbillHolding,
 )
 from .schemas import (
     AccountCreate, AccountUpdate,
