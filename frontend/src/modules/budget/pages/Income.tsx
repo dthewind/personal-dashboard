@@ -1027,6 +1027,10 @@ function TbillHoldingsCard({ accounts }: { accounts: Account[] }) {
   const active = notMatured.filter(h => h.purchase_date <= today).sort((a, b) => a.maturity_date.localeCompare(b.maturity_date))
   const matured = holdings.filter(h => h.status === 'matured').sort((a, b) => b.maturity_date.localeCompare(a.maturity_date))
 
+  const totalUpcoming = planned.reduce((s, h) => s + h.face_value, 0)
+  const nextBuyDate = planned[0]?.purchase_date
+  const daysToNextBuy = nextBuyDate ? daysUntil(nextBuyDate) : null
+
   const totalPrincipal = active.reduce((s, h) => s + (h.purchase_price ?? h.face_value), 0)
   const nextMaturity = active[0]?.maturity_date
   const knownYield = active.filter(h => h.implied_apy != null && h.purchase_price != null)
@@ -1099,6 +1103,18 @@ function TbillHoldingsCard({ accounts }: { accounts: Account[] }) {
       {planned.length > 0 && (
         <div className="mb-5">
           <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Upcoming</h3>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <div className="text-xs text-gray-500">Total Upcoming</div>
+              <div className="text-white font-mono text-sm mt-0.5">{fmt(totalUpcoming)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Next Buy</div>
+              <div className="text-white font-mono text-sm mt-0.5">
+                {daysToNextBuy != null ? (daysToNextBuy > 0 ? `${daysToNextBuy}d` : daysToNextBuy === 0 ? 'today' : `${-daysToNextBuy}d overdue`) : '—'}
+              </div>
+            </div>
+          </div>
           <div className="space-y-1">
             {planned.map(holding => {
               if (editingId === holding.id) return renderEditRow(holding)
@@ -1154,7 +1170,7 @@ function TbillHoldingsCard({ accounts }: { accounts: Account[] }) {
           <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Active</h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div>
-              <div className="text-xs text-gray-500">Principal Committed</div>
+              <div className="text-xs text-gray-500">Total Committed</div>
               <div className="text-white font-mono text-sm mt-0.5">{fmt(totalPrincipal)}</div>
             </div>
             <div>
