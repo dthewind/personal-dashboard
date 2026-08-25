@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import PageShell from '../components/PageShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -7,8 +7,21 @@ import { DateRangePicker, defaultRange } from '../components/DateRangePicker'
 import type { DateRange } from '../components/DateRangePicker'
 import Typeahead from '../components/Typeahead'
 import type {
-  Account, LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate, TransactionTag,
+  Account, AccountType, LedgerEntry, LedgerEntryCreate, LedgerEntryUpdate, TransferPairCreate, TransactionTag,
 } from '../types'
+
+// Mirrors backend recompute_balance (crud.py) so per-entry running balances match
+// the account's actual current_balance exactly.
+function ledgerEffect(entry: LedgerEntry, accountType: AccountType): number {
+  if (accountType === 'credit_card') {
+    if (entry.type === 'expense') return entry.amount
+    if (entry.type === 'transfer_in' || entry.type === 'credit') return -entry.amount
+    return 0
+  }
+  if (entry.type === 'income' || entry.type === 'transfer_in' || entry.type === 'credit') return entry.amount
+  if (entry.type === 'expense' || entry.type === 'transfer_out') return -entry.amount
+  return 0
+}
 
 const TAGS: TransactionTag[] = ['variable', 'fixed', 'one_off']
 const TAG_LABELS: Record<TransactionTag, string> = { variable: 'Variable', fixed: 'Fixed', one_off: 'One-off' }
@@ -570,6 +583,49 @@ export default function Transactions() {
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => api.accounts.list() })
   const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: () => api.categories() })
 
+  // Reconciliation: when exactly one account is selected, pull its FULL history
+  // (independent of the date range / type / category filters used for display)
+  // so the running balance is always anchored correctly on current_balance.
+  const singleAccountId = selectedAccounts.size === 1 ? [...selectedAccounts][0] : undefined
+  const singleAccount = singleAccountId ? (accounts ?? []).find(a => a.id === singleAccountId) : undefined
+
+  // Target balance is a scratch reconciliation aid, not app data — kept in
+  // localStorage per account so it survives a reload but never hits the API.
+  const [targetBalance, setTargetBalance] = useState('')
+  useEffect(() => {
+    if (!singleAccountId) { setTargetBalance(''); return }
+    setTargetBalance(localStorage.getItem(`reconcile-target-${singleAccountId}`) ?? '')
+  }, [singleAccountId])
+  useEffect(() => {
+    if (!singleAccountId) return
+    if (targetBalance) localStorage.setItem(`reconcile-target-${singleAccountId}`, targetBalance)
+    else localStorage.removeItem(`reconcile-target-${singleAccountId}`)
+  }, [targetBalance, singleAccountId])
+
+  const targetNum = parseFloat(targetBalance)
+  const hasTarget = targetBalance !== '' && !isNaN(targetNum)
+  const balanceDiff = hasTarget && singleAccount ? targetNum - singleAccount.current_balance : null
+
+  const { data: acctHistory } = useQuery({
+    queryKey: ['ledger', 'account-history', singleAccountId],
+    queryFn: () => api.ledger.list({ account_id: singleAccountId!, limit: 100000 }),
+    enabled: !!singleAccountId,
+  })
+
+  const runningBalances = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!singleAccount || !acctHistory) return map
+    const chronological = [...acctHistory].sort((a, b) =>
+      a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date)
+    )
+    let bal = singleAccount.opening_balance
+    for (const e of chronological) {
+      bal += ledgerEffect(e, singleAccount.type)
+      map.set(e.id, bal)
+    }
+    return map
+  }, [acctHistory, singleAccount])
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['ledger'] })
     qc.invalidateQueries({ queryKey: ['accounts'] })
@@ -678,6 +734,44 @@ export default function Transactions() {
         </button>
       </div>
 
+      {/* Current balance + reconciliation target — only when a single account is selected */}
+      {singleAccount && (
+        <div className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex-wrap gap-3">
+          <div>
+            <div className="text-xs text-gray-500">{singleAccount.name} — current balance</div>
+            <div className="text-2xl font-mono text-white">{fmt(singleAccount.current_balance)}</div>
+          </div>
+          <div className="flex items-end gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                {singleAccount.type === 'credit_card' ? 'Statement balance' : 'Bank balance'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input
+                  type="number" step="0.01" value={targetBalance}
+                  onChange={e => setTargetBalance(e.target.value)}
+                  placeholder={String(singleAccount.current_balance)}
+                  className={inp + ' pl-6 w-32'}
+                />
+              </div>
+            </div>
+            {hasTarget && (
+              <div className="text-right">
+                <div className="text-xs text-gray-500 mb-1">Difference</div>
+                {Math.abs(balanceDiff!) < 0.005 ? (
+                  <div className="text-lg font-mono text-emerald-400">✓ Matches</div>
+                ) : (
+                  <div className="text-lg font-mono text-red-400">
+                    {balanceDiff! > 0 ? `App is ${fmt(balanceDiff!)} low` : `App is ${fmt(-balanceDiff!)} high`}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Category filter — only relevant for expenses */}
       {(filterType === 'all' || filterType === 'expense') && (
         <div className="flex items-center gap-2">
@@ -763,9 +857,15 @@ export default function Transactions() {
                     <span className="text-xs text-indigo-400">{entry.category}</span>
                     <span className="text-xs text-gray-600">{accountMap[entry.account_id]?.name ?? '—'}</span>
                   </div>
+                  {entry.notes && (
+                    <div className="text-xs text-gray-500 italic truncate mt-0.5">{entry.notes}</div>
+                  )}
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-white font-mono text-sm">{fmt(entry.amount)}</div>
+                  {singleAccount && runningBalances.has(entry.id) && (
+                    <div className="text-xs text-gray-600 font-mono">{fmt(runningBalances.get(entry.id)!)}</div>
+                  )}
                   {confirmDelete === entry.id ? (
                     <div className="flex gap-2 mt-1 justify-end">
                       <button onClick={() => deleteMutation.mutate(entry.id)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
@@ -805,6 +905,9 @@ export default function Transactions() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-mono text-emerald-400">−{fmt(entry.amount)}</div>
+                  {singleAccount && runningBalances.has(entry.id) && (
+                    <div className="text-xs text-gray-600 font-mono">{fmt(runningBalances.get(entry.id)!)}</div>
+                  )}
                   {confirmDelete === entry.id ? (
                     <div className="flex gap-2 mt-1 justify-end">
                       <button onClick={() => deleteMutation.mutate(entry.id)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
@@ -843,6 +946,9 @@ export default function Transactions() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-mono text-teal-400">+{fmt(entry.amount)}</div>
+                  {singleAccount && runningBalances.has(entry.id) && (
+                    <div className="text-xs text-gray-600 font-mono">{fmt(runningBalances.get(entry.id)!)}</div>
+                  )}
                   {confirmDelete === entry.id ? (
                     <div className="flex gap-2 mt-1 justify-end">
                       <button onClick={() => deleteMutation.mutate(entry.id)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
@@ -884,6 +990,9 @@ export default function Transactions() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className={`text-sm font-mono ${isOut ? 'text-gray-500' : 'text-gray-400'}`}>{fmt(entry.amount)}</div>
+                  {singleAccount && runningBalances.has(entry.id) && (
+                    <div className="text-xs text-gray-600 font-mono">{fmt(runningBalances.get(entry.id)!)}</div>
+                  )}
                   {confirmDelete === entry.id ? (
                     <div className="flex gap-2 mt-1 justify-end">
                       <button onClick={() => deleteMutation.mutate(entry.id)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
