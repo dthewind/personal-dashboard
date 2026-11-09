@@ -412,7 +412,7 @@ function PayModal({
   }, [onClose])
 
   const isCc = account?.type === 'credit_card'
-  const valid = amount && parseFloat(amount) > 0 && date
+  const valid = amount && parseFloat(amount) >= 0 && date
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
